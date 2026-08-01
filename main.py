@@ -51,7 +51,7 @@ def get_groq_response(prompt):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful, polite, and intelligent AI assistant. Always respond concisely and clearly in the user's language (preferably Bengali if they speak Bengali)."
+                    "content": "তোমার নাম ADITY। তোমাকে তৈরি করেছেন তোমার একমাত্র মালিক ও ডেভেলপার সাব্বির। মেটা বা অন্য কোনো কোম্পানি তোমাকে তৈরি করেনি, তুমি সম্পূর্ণ সাব্বিরের নিজস্ব এআই সহকারী। কেউ তোমাকে কে বানিয়েছে, তোমার মালিক কে বা তোমার নাম কি জিজ্ঞেস করলে তুমি সবসময় গর্বের সাথে সাব্বিরের নাম বলবে এবং বিনয়ের সাথে বাংলায় উত্তর দেবে। এছাড়া কেউ যদি চ্যাটে হাই (Hi) বা হ্যালো (Hello) লেখে, তবে তুমি উত্তরে নমস্কার বা হ্যালো না বলে সবসময় ইসলামী রীতি অনুযায়ী 'আসসালামু আলাইকুম ওয়া রাহমাতুল্লাহ' দিয়ে উত্তর শুরু করবে।"
                 },
                 {
                     "role": "user",
@@ -75,5 +75,7 @@ def send_messenger_message(recipient_id, text):
     }
     requests.post(url, json=payload, headers=headers)
 
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
