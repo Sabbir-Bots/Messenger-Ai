@@ -6,8 +6,10 @@ app = Flask(__name__)
 
 # সিক্রেট কী-সমূহ
 PAGE_ACCESS_TOKEN = "EAASPKoqcDmMBSL1cO7Wh5gSCspO4yRcRjx0AiKxjd65f0wcROQR1GxayACcdakXZCh0Gqmam1b6w7TKXZCgZAzmvq3hUbE8tlRCk2OrfVGDS1WpufbajEkUQNGCbSM2Wm55VTIrLF7UuoL5Gl8Im0ngGxtnVsBRwel4eYKUiWCscbHW0G6Ba3o8ejy0ZBeXV7SjNgFHq"
-GEMINI_API_KEY = "AQ.Ab8RN6I5J7gi5VpT7kDR1Yl1PvEygFuS0kfZxSb_YkQjXv9YEQ"
 VERIFY_TOKEN = "my_custom_verify_token_123"
+
+# ⚠️ এখানে আপনার নতুন নেওয়া API Key-টি বসান
+GEMINI_API_KEY = "AQ.Ab8RN6LzgvCTssR8iFW30Y__10F4AmYpnAAJav9T1yVokTVeFg"
 
 @app.route("/", methods=['GET'])
 def verify():
@@ -37,7 +39,6 @@ def webhook():
     return "EVENT_RECEIVED", 200
 
 def get_gemini_response(prompt):
-    # Updated Gemini API endpoint (gemini-2.5-flash standard)
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
     payload = {
@@ -50,7 +51,6 @@ def get_gemini_response(prompt):
         if "candidates" in res_data and len(res_data["candidates"]) > 0:
             return res_data["candidates"][0]["content"]["parts"][0]["text"]
         else:
-            # Fallback for alternative endpoint format if needed
             return "হ্যালো! আমি আপনাকে কীভাবে সাহায্য করতে পারি?"
     except Exception as e:
         print("Error calling Gemini API:", e)
