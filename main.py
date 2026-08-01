@@ -56,7 +56,7 @@ def webhook():
 
 def get_groq_response(sender_id, prompt, image_url=None):
     if not client:
-        return "API Key সেট করা হয়নি।"
+        return "সাব্বির আমাকে একটু আপডেট করতেছে, একটু অপেক্ষা করুন।"
     
     # ইউজারভিত্তিক চ্যাট হিস্ট্রি তৈরি বা লোড করা
     if sender_id not in user_histories:
@@ -64,7 +64,7 @@ def get_groq_response(sender_id, prompt, image_url=None):
             {
                 "role": "system",
                 "content": (
-                    "তোমার নাম ADITY। তোমাকে তৈরি করেছেন তোমার ডেভেলপার ও মালিক সাব্বির। "
+                    "তোমার নাম ADITY। তোমার ভার্সন ১.০। তোমাকে তৈরি করেছেন তোমার ডেভেলপার ও মালিক সাব্বির। "
                     "তুমি কোনো সাধারণ রোবট বা এআই নও, বরং একজন বাস্তব মানুষের মতো চতুর, স্মার্ট, রসিক এবং মানিয়ে চলতে পারা সঙ্গী। "
                     "ইউজারের আগের বলা কথা, নাম এবং কনভার্সেশনের হিস্ট্রি সবসময় মনে রাখবে। ইউজার নিজের নাম বললে তা মনে রাখবে এবং পরবর্তীতে জিজ্ঞাসা করলে বলতে পারবে। "
                     "কেউ চ্যাটে প্রথমে 'হাই', 'হ্যালো' বা সালাম দিলে নিজে থেকে সুন্দরভাবে সালাম জানাবে। "
@@ -83,13 +83,13 @@ def get_groq_response(sender_id, prompt, image_url=None):
     # মেসেজের সাথে ছবি থাকলে ভিশন মডেলের উপযোগী ফরম্যাটে মেসেজ সাজানো
     if image_url:
         user_content = [
-            {"type": "text", "text": prompt if prompt else "이 ছবিটিতে কী আছে তা বাংলায় বর্ণনা করো।"},
+            {"type": "text", "text": prompt if prompt else "এই ছবিটিতে কী আছে তা বাংলায় বর্ণনা করো।"},
             {"type": "image_url", "image_url": {"url": image_url}}
         ]
-        model_to_use = "llama-3.2-11b-vision-preview" # ছবি পড়ার জন্য ভিশন মডেল
+        model_to_use = "llama-3.2-11b-vision-preview"
     else:
         user_content = prompt
-        model_to_use = "llama-3.3-70b-versatile" # সাধারণ টেক্সটের জন্য শক্তিশালী মডেল
+        model_to_use = "llama-3.3-70b-versatile"
 
     history.append({"role": "user", "content": user_content})
 
@@ -102,7 +102,7 @@ def get_groq_response(sender_id, prompt, image_url=None):
         )
         bot_reply = completion.choices[0].message.content
         
-        # বটের উত্তরটি হিস্ট্রিতে যোগ করা (পরবর্তী কনটেক্সটের জন্য)
+        # বটের উত্তরটি হিস্ট্রিতে যোগ করা
         history.append({"role": "assistant", "content": bot_reply})
         
         # হিস্ট্রি যেন খুব বেশি বড় হয়ে না যায় (সর্বোচ্চ শেষ ২০টি মেসেজ রাখবে)
@@ -112,7 +112,7 @@ def get_groq_response(sender_id, prompt, image_url=None):
         return bot_reply
     except Exception as e:
         print("Error calling Groq API:", e)
-        return "এপিআই কানেকশনে সমস্যা হচ্ছে, কিছুক্ষণ পর চেষ্টা করুন।"
+        return "সাব্বির আমাকে একটু আপডেট করতেছে, একটু অপেক্ষা করুন।"
 
 def send_messenger_message(recipient_id, text):
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
@@ -125,4 +125,4 @@ def send_messenger_message(recipient_id, text):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-                    
+                            
