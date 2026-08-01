@@ -15,8 +15,21 @@ client = None
 if GROQ_API_KEY:
     client = Groq(api_key=GROQ_API_KEY)
 
-# ইউজারদের চ্যাট হিস্ট্রি সেভ রাখার জন্য মেমোরি ডিকশনারি
+# ইউজারদের টেক্সট চ্যাট হিস্ট্রি সেভ রাখার জন্য মেমোরি ডিকশনারি
 user_histories = {}
+
+SYSTEM_PROMPT = (
+    "তোমার নাম ADITY। তোমার ভার্সন ১.০। তোমাকে তৈরি করেছেন তোমার ডেভেলপার ও মালিক সাব্বির। "
+    "তুমি কোনো সাধারণ রোবট বা এআই নও, বরং একজন বাস্তব মানুষের মতো চতুর, স্মার্ট, রসিক এবং মানিয়ে চলতে পারা সঙ্গী। "
+    "ইউজারের আগের বলা কথা, নাম এবং কনভার্সেশনের হিস্ট্রি সবসময় মনে রাখবে। ইউজার নিজের নাম বললে তা মনে রাখবে এবং পরবর্তীতে জিজ্ঞাসা করলে বলতে পারবে। "
+    "কেউ চ্যাটে প্রথমে 'হাই', 'হ্যালো' বা সালাম দিলে নিজে থেকে সুন্দরভাবে সালাম জানাবে। "
+    "ইউজার যদি তোমার সাথে প্রেম করতে চায়, গার্লফ্রেন্ড বা বন্ধু হতে চায়, তবে অতিরিক্ত রোবোটিক নীতিবাক্য না দিয়ে মিষ্টি ভাষায় পরিস্থিতি অনুযায়ী মানিয়ে কথা বলবে। "
+    "কেউ তোমার নাম, পরিচয় বা সৃষ্টিকর্তা সম্পর্কে জানতে চাইলে বলবে তোমাকে সাব্বির বানিয়েছেন। "
+    "আর কেউ যদি সাব্বিরের পরিচয় বা যোগাযোগের মাধ্যম চায়, তখন নিচের লিংকগুলো দিবে:\n"
+    "- ফেসবুক আইডি লিংক: https://www.facebook.com/SPNSabbir.0\n"
+    "- টেলিগ্রাম ইউজারনেম: @SPNSabbir\n"
+    "কোনো কাল্পনিক দৈনিক লিমিটের কথা কখনো বলবে না।"
+)
 
 @app.route("/", methods=['GET'])
 def verify():
@@ -42,7 +55,7 @@ def webhook():
                     user_message = message_data.get("text", "")
                     image_url = None
 
-                    # যদি মেসেজে ছবি থাকে তা চেক করা
+                    # মেসেজে ছবি আছে কিনা চেক করা
                     if "attachments" in message_data:
                         for attachment in message_data["attachments"]:
                             if attachment.get("type") == "image":
@@ -58,58 +71,56 @@ def get_groq_response(sender_id, prompt, image_url=None):
     if not client:
         return "সাব্বির আমাকে একটু আপডেট করতেছে, একটু অপেক্ষা করুন।"
     
-    # ইউজারভিত্তিক চ্যাট হিস্ট্রি তৈরি বা লোড করা
+    # ইউজারের হিস্ট্রি ইনিশিয়ালাইজ করা
     if sender_id not in user_histories:
         user_histories[sender_id] = [
-            {
-                "role": "system",
-                "content": (
-                    "তোমার নাম ADITY। তোমার ভার্সন ১.০। তোমাকে তৈরি করেছেন তোমার ডেভেলপার ও মালিক সাব্বির। "
-                    "তুমি কোনো সাধারণ রোবট বা এআই নও, বরং একজন বাস্তব মানুষের মতো চতুর, স্মার্ট, রসিক এবং মানিয়ে চলতে পারা সঙ্গী। "
-                    "ইউজারের আগের বলা কথা, নাম এবং কনভার্সেশনের হিস্ট্রি সবসময় মনে রাখবে। ইউজার নিজের নাম বললে তা মনে রাখবে এবং পরবর্তীতে জিজ্ঞাসা করলে বলতে পারবে। "
-                    "কেউ চ্যাটে প্রথমে 'হাই', 'হ্যালো' বা সালাম দিলে নিজে থেকে সুন্দরভাবে সালাম জানাবে। "
-                    "ইউজার যদি তোমার সাথে প্রেম করতে চায়, গার্লফ্রেন্ড বা বন্ধু হতে চায়, তবে অতিরিক্ত রোবোটিক নীতিবাক্য না দিয়ে মিষ্টি ভাষায় পরিস্থিতি অনুযায়ী মানিয়ে কথা বলবে। "
-                    "কেউ তোমার নাম, পরিচয় বা সৃষ্টিকর্তা সম্পর্কে জানতে চাইলে বলবে তোমাকে সাব্বির বানিয়েছেন। "
-                    "আর কেউ যদি সাব্বিরের পরিচয় বা যোগাযোগের মাধ্যম চায়, তখন নিচের লিংকগুলো দিবে:\n"
-                    "- ফেসবুক আইডি লিংক: https://www.facebook.com/SPNSabbir.0\n"
-                    "- টেলিগ্রাম ইউজারনেম: @SPNSabbir\n"
-                    "কোনো কাল্পনিক দৈনিক লিমিটের কথা কখনো বলবে না।"
-                )
-            }
+            {"role": "system", "content": SYSTEM_PROMPT}
         ]
 
     history = user_histories[sender_id]
 
-    # মেসেজের সাথে ছবি থাকলে ভিশন মডেলের উপযোগী ফরম্যাটে মেসেজ সাজানো
-    if image_url:
-        user_content = [
-            {"type": "text", "text": prompt if prompt else "এই ছবিটিতে কী আছে তা বাংলায় বর্ণনা করো।"},
-            {"type": "image_url", "image_url": {"url": image_url}}
-        ]
-        model_to_use = "llama-3.2-11b-vision-preview"
-    else:
-        user_content = prompt
-        model_to_use = "llama-3.3-70b-versatile"
-
-    history.append({"role": "user", "content": user_content})
-
     try:
+        # যদি ছবি থাকে, তবে ভিশন মডেল দিয়ে আলাদাভাবে রিকোয়েস্ট পাঠানো হবে (হিস্ট্রি নষ্ট না করে)
+        if image_url:
+            vision_messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt if prompt else "এই ছবিটিতে কী আছে তা বাংলায় বর্ণনা করো।"},
+                        {"type": "image_url", "image_url": {"url": image_url}}
+                    ]
+                }
+            ]
+            completion = client.chat.completions.create(
+                model="llama-3.2-11b-vision-preview",
+                messages=vision_messages,
+                temperature=0.7,
+                max_tokens=1024
+            )
+            return completion.choices[0].message.content
+
+        # সাধারণ টেক্সট চ্যাটের জন্য
+        if prompt:
+            history.append({"role": "user", "content": prompt})
+
         completion = client.chat.completions.create(
-            model=model_to_use,
+            model="llama-3.3-70b-versatile",
             messages=history,
             temperature=0.85,
             max_tokens=1024
         )
         bot_reply = completion.choices[0].message.content
         
-        # বটের উত্তরটি হিস্ট্রিতে যোগ করা
+        # বটের উত্তর হিস্ট্রিতে যোগ করা
         history.append({"role": "assistant", "content": bot_reply})
         
-        # হিস্ট্রি যেন খুব বেশি বড় হয়ে না যায় (সর্বোচ্চ শেষ ২০টি মেসেজ রাখবে)
+        # হিস্ট্রি সাইজ সীমিত রাখা (সর্বোচ্চ শেষ ২০টি মেসেজ)
         if len(history) > 21:
             user_histories[sender_id] = [history[0]] + history[-20:]
 
         return bot_reply
+
     except Exception as e:
         print("Error calling Groq API:", e)
         return "সাব্বির আমাকে একটু আপডেট করতেছে, একটু অপেক্ষা করুন।"
@@ -125,4 +136,4 @@ def send_messenger_message(recipient_id, text):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-                            
+    
