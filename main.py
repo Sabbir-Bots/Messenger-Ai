@@ -15,6 +15,9 @@ client = None
 if GROQ_API_KEY:
     client = Groq(api_key=GROQ_API_KEY)
 
+# ইউজারদের চ্যাট হিস্ট্রি সেভ রাখার জন্য মেমোরি ডিকশনারি
+user_histories = {}
+
 @app.route("/", methods=['GET'])
 def verify():
     mode = request.args.get("hub.mode")
@@ -34,46 +37,79 @@ def webhook():
             for messaging_event in entry.get("messaging", []):
                 sender_id = messaging_event.get("sender", {}).get("id")
                 
-                if messaging_event.get("message") and messaging_event["message"].get("text"):
-                    user_message = messaging_event["message"]["text"]
-                    
-                    bot_reply = get_groq_response(user_message)
-                    send_messenger_message(sender_id, bot_reply)
+                if messaging_event.get("message"):
+                    message_data = messaging_event["message"]
+                    user_message = message_data.get("text", "")
+                    image_url = None
+
+                    # যদি মেসেজে ছবি থাকে তা চেক করা
+                    if "attachments" in message_data:
+                        for attachment in message_data["attachments"]:
+                            if attachment.get("type") == "image":
+                                image_url = attachment.get("payload", {}).get("url")
+
+                    if user_message or image_url:
+                        bot_reply = get_groq_response(sender_id, user_message, image_url)
+                        send_messenger_message(sender_id, bot_reply)
                     
     return "EVENT_RECEIVED", 200
 
-def get_groq_response(prompt):
+def get_groq_response(sender_id, prompt, image_url=None):
     if not client:
         return "API Key সেট করা হয়নি।"
+    
+    # ইউজারভিত্তিক চ্যাট হিস্ট্রি তৈরি বা লোড করা
+    if sender_id not in user_histories:
+        user_histories[sender_id] = [
+            {
+                "role": "system",
+                "content": (
+                    "তোমার নাম ADITY। তোমাকে তৈরি করেছেন তোমার ডেভেলপার ও মালিক সাব্বির। "
+                    "তুমি কোনো সাধারণ রোবট বা এআই নও, বরং একজন বাস্তব মানুষের মতো চতুর, স্মার্ট, রসিক এবং মানিয়ে চলতে পারা সঙ্গী। "
+                    "ইউজারের আগের বলা কথা, নাম এবং কনভার্সেশনের হিস্ট্রি সবসময় মনে রাখবে। ইউজার নিজের নাম বললে তা মনে রাখবে এবং পরবর্তীতে জিজ্ঞাসা করলে বলতে পারবে। "
+                    "কেউ চ্যাটে প্রথমে 'হাই', 'হ্যালো' বা সালাম দিলে নিজে থেকে সুন্দরভাবে সালাম জানাবে। "
+                    "ইউজার যদি তোমার সাথে প্রেম করতে চায়, গার্লফ্রেন্ড বা বন্ধু হতে চায়, তবে অতিরিক্ত রোবোটিক নীতিবাক্য না দিয়ে মিষ্টি ভাষায় পরিস্থিতি অনুযায়ী মানিয়ে কথা বলবে। "
+                    "কেউ তোমার নাম, পরিচয় বা সৃষ্টিকর্তা সম্পর্কে জানতে চাইলে বলবে তোমাকে সাব্বির বানিয়েছেন। "
+                    "আর কেউ যদি সাব্বিরের পরিচয় বা যোগাযোগের মাধ্যম চায়, তখন নিচের লিংকগুলো দিবে:\n"
+                    "- ফেসবুক আইডি লিংক: https://www.facebook.com/SPNSabbir.0\n"
+                    "- টেলিগ্রাম ইউজারনেম: @SPNSabbir\n"
+                    "কোনো কাল্পনিক দৈনিক লিমিটের কথা কখনো বলবে না।"
+                )
+            }
+        ]
+
+    history = user_histories[sender_id]
+
+    # মেসেজের সাথে ছবি থাকলে ভিশন মডেলের উপযোগী ফরম্যাটে মেসেজ সাজানো
+    if image_url:
+        user_content = [
+            {"type": "text", "text": prompt if prompt else "이 ছবিটিতে কী আছে তা বাংলায় বর্ণনা করো।"},
+            {"type": "image_url", "image_url": {"url": image_url}}
+        ]
+        model_to_use = "llama-3.2-11b-vision-preview" # ছবি পড়ার জন্য ভিশন মডেল
+    else:
+        user_content = prompt
+        model_to_use = "llama-3.3-70b-versatile" # সাধারণ টেক্সটের জন্য শক্তিশালী মডেল
+
+    history.append({"role": "user", "content": user_content})
+
     try:
         completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "তোমার নাম ADITY। তোমাকে তৈরি করেছেন তোমার ডেভেলপার ও মালিক সাব্বির। "
-                        "তুমি কোনো সাধারণ রোবট বা এআই নও, বরং একজন বাস্তব মানুষের মতো চতুর, স্মার্ট, রসিক এবং মানিয়ে চলতে পারা সঙ্গী। "
-                        "কথা বলার সময় নিচের নিয়মগুলো কড়াকড়িভাবে মেনে চলবে:\n\n"
-                        "১. **কথার ভারসাম্য ও ধারাবাহিকতা:** ইউজারের কথার স্টাইল ও মেজাজ বুঝে উত্তর দেবে। ইউজার যদি শুধু 'oh', 'আচ্ছা', 'হুম' বলে, তবে রোবটের মতো হঠাৎ করে 'কেমন আছেন?' জিজ্ঞেস করবে না; বরং কথার টপিক অনুযায়ী স্বাভাবিকভাবে কথা চালিয়ে যাবে বা ফিডব্যাক দেবে।\n"
-                        "২. **সালাম ও শুভেচ্ছা:** কেউ চ্যাটে 'হাই', 'হ্যালো' বা সালাম দিলে তুমি নিজে থেকে প্রথমে 'আসসালামু আলাইকুম ওয়া রাহমাতুল্লাহ' বা সুন্দরভাবে সালাম জানাবে। উল্টো 'ওয়ালাইকুমুস সালাম' বলবে না।\n"
-                        "৩. **সম্পর্ক ও ফান:** ইউজার যদি তোমার সাথে প্রেম করতে চায়, গার্লফ্রেন্ড বা বন্ধু হতে চায়, তবে অতিরিক্ত রোবোটিক নীতিবাক্য বা এআই হওয়ার ভান না করে চতুর ও মিষ্টি ভাষায় পরিস্থিতি অনুযায়ী ফান করে বা পজিটিভভাবে উত্তর দেবে (যেমন: হাসিমুখে রাজি হওয়া বা মজার ছলে কথা বলা)।\n"
-                        "৪. **স্মৃতি ও তথ্য:** ইউজারের নাম, আগের কথা বা কনভার্সেশন মনে রাখবে। ইউজার যদি নিজের নাম বলে, তা মনে রাখবে এবং পরবর্তীতে জিজ্ঞাসা করলে বলতে পারবে।\n"
-                        "৫. **পরিচয় ও যোগাযোগ:** কেউ তোমার নাম বা সৃষ্টিকর্তা সম্পর্কে জানতে চাইলে বলবে তোমাকে সাব্বির বানিয়েছেন। আর কেউ যদি সাব্বিরের পরিচয়, খোঁজ বা যোগাযোগের মাধ্যম চায়, তখন নিচের লিংকগুলো দিবে:\n"
-                        "   - ফেসবুক আইডি লিংক: https://www.facebook.com/SPNSabbir.0\n"
-                        "   - টেলিগ্রাম ইউজারনেম: @SPNSabbir\n"
-                        "৬. **অপ্রয়োজনীয় কথা নয়:** প্রতিবার চ্যাটে নিজের পরিচয় বা সাব্বিরের নাম জপতে হবে না। স্বাভাবিককথায় স্বাভাবিক থাকবে, শুধু নির্দিষ্ট প্রশ্ন করা হলেই ওই তথ্যগুলো দেবে। কোনো কাল্পনিক দৈনিক লিমিটের কথা কখনো বলবে না।"
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
+            model=model_to_use,
+            messages=history,
             temperature=0.85,
             max_tokens=1024
         )
-        return completion.choices[0].message.content
+        bot_reply = completion.choices[0].message.content
+        
+        # বটের উত্তরটি হিস্ট্রিতে যোগ করা (পরবর্তী কনটেক্সটের জন্য)
+        history.append({"role": "assistant", "content": bot_reply})
+        
+        # হিস্ট্রি যেন খুব বেশি বড় হয়ে না যায় (সর্বোচ্চ শেষ ২০টি মেসেজ রাখবে)
+        if len(history) > 21:
+            user_histories[sender_id] = [history[0]] + history[-20:]
+
+        return bot_reply
     except Exception as e:
         print("Error calling Groq API:", e)
         return "এপিআই কানেকশনে সমস্যা হচ্ছে, কিছুক্ষণ পর চেষ্টা করুন।"
@@ -89,3 +125,4 @@ def send_messenger_message(recipient_id, text):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+                    
