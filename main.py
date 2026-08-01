@@ -1,15 +1,19 @@
 import os
+import google.generativeai as genai
 from flask import Flask, request
 import requests
 
 app = Flask(__name__)
 
-# সিক্রেট কী-সমূহ
-PAGE_ACCESS_TOKEN = "EAASPKoqcDmMBSL1cO7Wh5gSCspO4yRcRjx0AiKxjd65f0wcROQR1GxayACcdakXZCh0Gqmam1b6w7TKXZCgZAzmvq3hUbE8tlRCk2OrfVGDS1WpufbajEkUQNGCbSM2Wm55VTIrLF7UuoL5Gl8Im0ngGxtnVsBRwel4eYKUiWCscbHW0G6Ba3o8ejy0ZBeXV7SjNgFHq"
-VERIFY_TOKEN = "my_custom_verify_token_123"
+# Render Environment Variables থেকে কী সংগ্রহ করবে
+PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN", "EAASPKoqcDmMBSL1cO7Wh5gSCspO4yRcRjx0AiKxjd65f0wcROQR1GxayACcdakXZCh0Gqmam1b6w7TKXZCgZAzmvq3hUbE8tlRCk2OrfVGDS1WpufbajEkUQNGCbSM2Wm55VTIrLF7UuoL5Gl8Im0ngGxtnVsBRwel4eYKUiWCscbHW0G6Ba3o8ejy0ZBeXV7SjNgFHq")
+VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "my_custom_verify_token_123")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# ⚠️ এখানে আপনার নতুন নেওয়া API Key-টি বসান
-GEMINI_API_KEY = "AQ.Ab8RN6LzgvCTssR8iFW30Y__10F4AmYpnAAJav9T1yVokTVeFg"
+# Gemini AI কনফিগারেশন
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel("gemini-2.5-flash")
 
 @app.route("/", methods=['GET'])
 def verify():
@@ -39,22 +43,17 @@ def webhook():
     return "EVENT_RECEIVED", 200
 
 def get_gemini_response(prompt):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
-    }
-    
     try:
-        response = requests.post(url, json=payload, headers=headers)
-        res_data = response.json()
-        if "candidates" in res_data and len(res_data["candidates"]) > 0:
-            return res_data["candidates"][0]["content"]["parts"][0]["text"]
-        else:
-            return "হ্যালো! আমি আপনাকে কীভাবে সাহায্য করতে পারি?"
+        if not GEMINI_API_KEY:
+            return "API Key সেট করা হয়নি।"
+            
+        response = model.generate_content(prompt)
+        if response and response.text:
+            return response.text
+        return "আমি বুঝতে পেরেছি, একটু বিস্তারিত বলবেন?"
     except Exception as e:
         print("Error calling Gemini API:", e)
-        return "দুঃখিত, কোনো সমস্যা হয়েছে। একটু পর আবার চেষ্টা করুন।"
+        return "এপিআই কানেকশনে সমস্যা হচ্ছে।"
 
 def send_messenger_message(recipient_id, text):
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
