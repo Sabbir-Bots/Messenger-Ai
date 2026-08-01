@@ -1,19 +1,19 @@
 import os
-import google.generativeai as genai
 from flask import Flask, request
 import requests
+from groq import Groq
 
 app = Flask(__name__)
 
-# Render Environment Variables থেকে কী সংগ্রহ করবে
+# সিক্রেট কী-সমূহ (Render Environment Variables থেকে আসবে)
 PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN", "EAASPKoqcDmMBSL1cO7Wh5gSCspO4yRcRjx0AiKxjd65f0wcROQR1GxayACcdakXZCh0Gqmam1b6w7TKXZCgZAzmvq3hUbE8tlRCk2OrfVGDS1WpufbajEkUQNGCbSM2Wm55VTIrLF7UuoL5Gl8Im0ngGxtnVsBRwel4eYKUiWCscbHW0G6Ba3o8ejy0ZBeXV7SjNgFHq")
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "my_custom_verify_token_123")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-# Gemini AI কনফিগারেশন
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.5-flash")
+# Groq AI Client কনফিগারেশন
+client = None
+if GROQ_API_KEY:
+    client = Groq(api_key=GROQ_API_KEY)
 
 @app.route("/", methods=['GET'])
 def verify():
@@ -37,23 +37,34 @@ def webhook():
                 if messaging_event.get("message") and messaging_event["message"].get("text"):
                     user_message = messaging_event["message"]["text"]
                     
-                    bot_reply = get_gemini_response(user_message)
+                    bot_reply = get_groq_response(user_message)
                     send_messenger_message(sender_id, bot_reply)
                     
     return "EVENT_RECEIVED", 200
 
-def get_gemini_response(prompt):
+def get_groq_response(prompt):
+    if not client:
+        return "API Key সেট করা হয়নি।"
     try:
-        if not GEMINI_API_KEY:
-            return "API Key সেট করা হয়নি।"
-            
-        response = model.generate_content(prompt)
-        if response and response.text:
-            return response.text
-        return "আমি বুঝতে পেরেছি, একটু বিস্তারিত বলবেন?"
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful, polite, and intelligent AI assistant. Always respond concisely and clearly in the user's language (preferably Bengali if they speak Bengali)."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.7,
+            max_tokens=1024
+        )
+        return completion.choices[0].message.content
     except Exception as e:
-        print("Error calling Gemini API:", e)
-        return "এপিআই কানেকশনে সমস্যা হচ্ছে।"
+        print("Error calling Groq API:", e)
+        return "এপিআই কানেকশনে সমস্যা হচ্ছে, কিছুক্ষণ পর চেষ্টা করুন।"
 
 def send_messenger_message(recipient_id, text):
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
