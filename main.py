@@ -6,23 +6,22 @@ from groq import Groq
 
 app = Flask(__name__)
 
-# সিক্রেট কী-সমূহ (Render Environment Variables থেকে আসবে)
+# সিক্রেট কী-সমূহ
 PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN", "EAASPKoqcDmMBSL1cO7Wh5gSCspO4yRcRjx0AiKxjd65f0wcROQR1GxayACcdakXZCh0Gqmam1b6w7TKXZCgZAzmvq3hUbE8tlRCk2OrfVGDS1WpufbajEkUQNGCbSM2Wm55VTIrLF7UuoL5Gl8Im0ngGxtnVsBRwel4eYKUiWCscbHW0G6Ba3o8ejy0ZBeXV7SjNgFHq")
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "my_custom_verify_token_123")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-# Groq AI Client কনফিগারেশন
 client = None
 if GROQ_API_KEY:
     client = Groq(api_key=GROQ_API_KEY)
 
-# ইউজারদের টেক্সট চ্যাট হিস্ট্রি সেভ রাখার জন্য মেমোরি ডিকশনারি
+# ইউজারদের চ্যাট হিস্ট্রি ডিকশনারি
 user_histories = {}
 
 SYSTEM_PROMPT = (
     "তোমার নাম ADITY। তোমার ভার্সন ১.০। তোমাকে তৈরি করেছেন তোমার ডেভেলপার ও মালিক সাব্বির। "
     "তুমি কোনো সাধারণ রোবট বা এআই নও, বরং একজন বাস্তব মানুষের মতো চতুর, স্মার্ট, রসিক এবং মানিয়ে চলতে পারা সঙ্গী। "
-    "ইউজারের আগের বলা কথা, নাম এবং কনভার্সেশনের হিস্ট্রি সবসময় মনে রাখবে। ইউজার নিজের নাম বললে তা মনে রাখবে এবং পরবর্তীতে জিজ্ঞাসা করলে বলতে পারবে। "
+    "ইউজারের আগের বলা কথা, নাম এবং কনভার্সেশনের হিস্ট্রি সবসময় মনে রাখবে। ইউজার নিজের নাম বললে বা পরিচয় দিলে তা মনে রাখবে এবং পরবর্তীতে জিজ্ঞাসা করলে বলতে পারবে। "
     "কেউ চ্যাটে প্রথমে 'হাই', 'হ্যালো' বা সালাম দিলে নিজে থেকে সুন্দরভাবে সালাম জানাবে। "
     "ইউজার যদি তোমার সাথে প্রেম করতে চায়, গার্লফ্রেন্ড বা বন্ধু হতে চায়, তবে অতিরিক্ত রোবোটিক নীতিবাক্য না দিয়ে মিষ্টি ভাষায় পরিস্থিতি অনুযায়ী মানিয়ে কথা বলবে। "
     "কেউ তোমার নাম, পরিচয় বা সৃষ্টিকর্তা সম্পর্কে জানতে চাইলে বলবে তোমাকে সাব্বির বানিয়েছেন। "
@@ -51,24 +50,14 @@ def webhook():
             for messaging_event in entry.get("messaging", []):
                 sender_id = messaging_event.get("sender", {}).get("id")
                 
-                if messaging_event.get("message"):
-                    message_data = messaging_event["message"]
-                    user_message = message_data.get("text", "")
-                    image_url = None
-
-                    # মেসেজে ছবি আছে কিনা চেক করা
-                    if "attachments" in message_data:
-                        for attachment in message_data["attachments"]:
-                            if attachment.get("type") == "image":
-                                image_url = attachment.get("payload", {}).get("url")
-
-                    if user_message or image_url:
-                        bot_reply = get_groq_response(sender_id, user_message, image_url)
-                        send_messenger_message(sender_id, bot_reply)
+                if messaging_event.get("message") and messaging_event["message"].get("text"):
+                    user_message = messaging_event["message"]["text"]
+                    bot_reply = get_groq_response(sender_id, user_message)
+                    send_messenger_message(sender_id, bot_reply)
                     
     return "EVENT_RECEIVED", 200
 
-def get_groq_response(sender_id, prompt, image_url=None):
+def get_groq_response(sender_id, prompt):
     if not client:
         return "সাব্বির আমাকে একটু আপডেট করতেছে, একটু অপেক্ষা করুন।"
     
@@ -78,32 +67,10 @@ def get_groq_response(sender_id, prompt, image_url=None):
         ]
 
     history = user_histories[sender_id]
+    history.append({"role": "user", "content": prompt})
 
-    # অটো-রিট্রাই লজিক (সর্বোচ্চ ২ বার চেষ্টার জন্য)
     for attempt in range(2):
         try:
-            if image_url:
-                vision_messages = [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt if prompt else "এই ছবিটিতে কী আছে তা বাংলায় বর্ণনা করো।"},
-                            {"type": "image_url", "image_url": {"url": image_url}}
-                        ]
-                    }
-                ]
-                completion = client.chat.completions.create(
-                    model="llama-3.2-11b-vision-preview",
-                    messages=vision_messages,
-                    temperature=0.7,
-                    max_tokens=1024
-                )
-                return completion.choices[0].message.content
-
-            if prompt:
-                history.append({"role": "user", "content": prompt})
-
             completion = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=history,
@@ -114,16 +81,17 @@ def get_groq_response(sender_id, prompt, image_url=None):
             
             history.append({"role": "assistant", "content": bot_reply})
             
+            # হিস্ট্রি সাইজ সীমিত রাখা
             if len(history) > 21:
                 user_histories[sender_id] = [history[0]] + history[-20:]
 
             return bot_reply
 
         except Exception as e:
-            print(f"Attempt {attempt+1} Error calling Groq API:", e)
-            time.sleep(1) # ১ সেকেন্ড অপেক্ষা করে আবার চেষ্টা করবে
+            print(f"Error (Attempt {attempt+1}):", e)
+            time.sleep(1)
 
-    return "সাব্বির আমাকে একটু আপডেট করতেছে, একটু অপেক্ষা করুন।"
+    return "দুঃখিত, এই মুহূর্তে সার্ভারে একটু সমস্যা হচ্ছে। একটু পরে আবার চেষ্টা করো!"
 
 def send_messenger_message(recipient_id, text):
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
