@@ -1,4 +1,5 @@
 import os
+import time
 from flask import Flask, request
 import requests
 from groq import Groq
@@ -71,7 +72,6 @@ def get_groq_response(sender_id, prompt, image_url=None):
     if not client:
         return "সাব্বির আমাকে একটু আপডেট করতেছে, একটু অপেক্ষা করুন।"
     
-    # ইউজারের হিস্ট্রি ইনিশিয়ালাইজ করা
     if sender_id not in user_histories:
         user_histories[sender_id] = [
             {"role": "system", "content": SYSTEM_PROMPT}
@@ -79,51 +79,51 @@ def get_groq_response(sender_id, prompt, image_url=None):
 
     history = user_histories[sender_id]
 
-    try:
-        # যদি ছবি থাকে, তবে ভিশন মডেল দিয়ে আলাদাভাবে রিকোয়েস্ট পাঠানো হবে (হিস্ট্রি নষ্ট না করে)
-        if image_url:
-            vision_messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt if prompt else "এই ছবিটিতে কী আছে তা বাংলায় বর্ণনা করো।"},
-                        {"type": "image_url", "image_url": {"url": image_url}}
-                    ]
-                }
-            ]
+    # অটো-রিট্রাই লজিক (সর্বোচ্চ ২ বার চেষ্টার জন্য)
+    for attempt in range(2):
+        try:
+            if image_url:
+                vision_messages = [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt if prompt else "এই ছবিটিতে কী আছে তা বাংলায় বর্ণনা করো।"},
+                            {"type": "image_url", "image_url": {"url": image_url}}
+                        ]
+                    }
+                ]
+                completion = client.chat.completions.create(
+                    model="llama-3.2-11b-vision-preview",
+                    messages=vision_messages,
+                    temperature=0.7,
+                    max_tokens=1024
+                )
+                return completion.choices[0].message.content
+
+            if prompt:
+                history.append({"role": "user", "content": prompt})
+
             completion = client.chat.completions.create(
-                model="llama-3.2-11b-vision-preview",
-                messages=vision_messages,
-                temperature=0.7,
+                model="llama-3.3-70b-versatile",
+                messages=history,
+                temperature=0.85,
                 max_tokens=1024
             )
-            return completion.choices[0].message.content
+            bot_reply = completion.choices[0].message.content
+            
+            history.append({"role": "assistant", "content": bot_reply})
+            
+            if len(history) > 21:
+                user_histories[sender_id] = [history[0]] + history[-20:]
 
-        # সাধারণ টেক্সট চ্যাটের জন্য
-        if prompt:
-            history.append({"role": "user", "content": prompt})
+            return bot_reply
 
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=history,
-            temperature=0.85,
-            max_tokens=1024
-        )
-        bot_reply = completion.choices[0].message.content
-        
-        # বটের উত্তর হিস্ট্রিতে যোগ করা
-        history.append({"role": "assistant", "content": bot_reply})
-        
-        # হিস্ট্রি সাইজ সীমিত রাখা (সর্বোচ্চ শেষ ২০টি মেসেজ)
-        if len(history) > 21:
-            user_histories[sender_id] = [history[0]] + history[-20:]
+        except Exception as e:
+            print(f"Attempt {attempt+1} Error calling Groq API:", e)
+            time.sleep(1) # ১ সেকেন্ড অপেক্ষা করে আবার চেষ্টা করবে
 
-        return bot_reply
-
-    except Exception as e:
-        print("Error calling Groq API:", e)
-        return "সাব্বির আমাকে একটু আপডেট করতেছে, একটু অপেক্ষা করুন।"
+    return "সাব্বির আমাকে একটু আপডেট করতেছে, একটু অপেক্ষা করুন।"
 
 def send_messenger_message(recipient_id, text):
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
