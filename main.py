@@ -182,7 +182,7 @@ def get_multi_ai_response(sender_id, prompt):
         error_summary = "\n".join(debug_logs) if debug_logs else "No active APIs connected."
         send_telegram_alert(f"সব এপিআই লিমিট শেষ বা ডাউন!\n\n**ডিবাগ এরর:**\n{error_summary}")
         
-        bot_reply = "একটু টেকনিক্যাল আপডেট চলছে, এখনই সবকিছু ঠিক হয়ে যাচ্ছি! সাথেই থাকুন। 🛠️"
+        bot_reply = "একটু টেকনিক্যাল আপডেট চলছে, এখনই সবকিছু ঠিক হয়ে করে আসছি! সাথেই থাকুন। 🛠️"
 
     # হিস্ট্রি আপডেট
     history.append({"role": "assistant", "content": bot_reply})
