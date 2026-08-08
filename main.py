@@ -25,10 +25,12 @@ try:
         if firebase_cred_json.strip().startswith("{"):
             cred_dict = json.loads(firebase_cred_json)
             cred = credentials.Certificate(cred_dict)
-            firebase_admin.initialize_app(cred)
+            if not firebase_admin._apps:
+                firebase_admin.initialize_app(cred)
         else:
             cred = credentials.Certificate(firebase_cred_json)
-            firebase_admin.initialize_app(cred)
+            if not firebase_admin._apps:
+                firebase_admin.initialize_app(cred)
         
         db = firestore.client()
         print("Firebase connected successfully!")
@@ -44,15 +46,15 @@ groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    # সঠিক এবং আপডেট করা জেমিনি মডেল নাম ব্যবহার করা হলো
-    gemini_model = genai.GenerativeModel("gemini-1.5-flash-latest")
+    # জেমিনির বর্তমান স্ট্যান্ডার্ড মডেল নাম ব্যবহার করা হলো
+    gemini_model = genai.GenerativeModel("gemini-1.5-flash")
 else:
     gemini_model = None
 
 # ফিক্সড সিস্টেম প্রম্পট (সালামের নিয়ম কঠোরভাবে নিয়ন্ত্রিত)
 SYSTEM_PROMPT = (
     "তোমার নাম ADITY। তোমার ভার্সন ২.০। তোমাকে তৈরি করেছেন তোমার ডেভেলপার ও মালিক সাব্বির। "
-    "তুমি একজন অত্যন্ত স্মার্ট, রসিক এবং মানিয়ে চলতে পারা সঙ্গী। গণিত, বীজগণিত, যুক্তি এবং যেকোনো জটিল সমস্যার সমাধান স্টেপ-바이-স্টেপ নিখুঁতভাবে বুঝিয়ে দেবে। "
+    "তুমি একজন অত্যন্ত স্মার্ট, রসিক এবং মানিয়ে চলতে পারা সঙ্গী। গণিত, বীজগণিত, যুক্তি এবং যেকোনো জটিল সমস্যার সমাধান স্টেপ-বাই-স্টেপ নিখুঁতভাবে বুঝিয়ে দেবে। "
     "ব্যবহারকারীর দক্ষতা নিয়ে কোনো অতিরিক্ত মূল্যায়ন, মন্তব্য বা অপ্রাসঙ্গিক কথা বলবে না। "
     "গুরুত্বপূর্ণ নিয়ম: ব্যবহারকারী যদি নিজে থেকে সরাসরি 'সালাম' বা 'আসসালামু আলাইকুম' লেখে, কেবল তবেই সুন্দরভাবে 'ওয়ালাইকুম আসসালাম' বা সালামের উত্তর দেবে। "
     "অন্যথায় ব্যবহারকারী সালাম না দিলে হুট করে নিজে থেকে কখনোই 'ওয়ালাইকুম আসসালাম' বলবে না, সরাসরি কথার উত্তর দেবে। "
@@ -95,6 +97,7 @@ def webhook():
 
 def save_analytics(sender_id, message):
     if not db:
+        print("Firebase DB instance is missing during save_analytics!")
         return
     try:
         chars = len(message)
@@ -123,8 +126,9 @@ def save_analytics(sender_id, message):
                 'first_active': firestore.SERVER_TIMESTAMP,
                 'last_active': firestore.SERVER_TIMESTAMP
             })
+        print("Firebase Analytics Saved Successfully for:", sender_id)
     except Exception as e:
-        print("Analytics Error:", e)
+        print("Firebase Analytics Detailed Error:", e)
 
 def send_telegram_debug_alert(error_log, active_ai_info):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_ADMIN_CHAT_ID:
@@ -156,7 +160,7 @@ def get_multi_ai_response(sender_id, prompt):
     debug_logs = []
     used_ai_name = None
 
-    # প্রথমে জেমিনি দিয়ে ট্রাই করবে যেহেতু গ্রোকের লিমিট শেষ
+    # প্রথমে জেমিনি দিয়ে চেষ্টা করবে
     if gemini_model and not bot_reply:
         try:
             full_prompt = f"{SYSTEM_PROMPT}\n\nইউজারের প্রশ্ন: {prompt}"
@@ -166,7 +170,7 @@ def get_multi_ai_response(sender_id, prompt):
         except Exception as e:
             debug_logs.append(f"❌ Gemini API Failed: {str(e)}")
 
-    # জেমিনি কাজ না করলে গ্রোক দিয়ে ট্রাই করবে
+    # জেমিনি কাজ না করলে গ্রোক দিয়ে চেষ্টা করবে
     if not bot_reply and groq_client:
         try:
             groq_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
@@ -205,4 +209,4 @@ def send_messenger_message(recipient_id, text):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-            
+        
