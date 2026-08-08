@@ -6,10 +6,11 @@ import google.generativeai as genai
 
 app = Flask(__name__)
 
-PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN")
-VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN")
+# পেজ অ্যাক্সেস টোকেন এবং ভেরিফাই টোকেন কোডের ভেতরেই রাখা হলো
+PAGE_ACCESS_TOKEN = "EAASPKoqcDmMBSL1cO7Wh5gSCspO4yRcRjx0AiKxjd65f0wcROQR1GxayACcdakXZCh0Gqmam1b6w7TKXZCgZAzmvq3hUbE8tlRCk2OrfVGDS1WpufbajEkUQNGCbSM2Wm55VTIrLF7UuoL5Gl8Im0ngGxtnVsBRwel4eYKUiWCscbHW0G6Ba3o8ejy0ZBeXV7SjNgFHq"
+VERIFY_TOKEN = "my_custom_verify_token_123"
 
-# API Keys
+# শুধুমাত্র Groq এবং Gemini API Key সিক্রেট রাখার জন্য Render Environment Variables থেকে রিড হবে
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
@@ -48,6 +49,7 @@ def verify():
 @app.route("/", methods=['POST'])
 def webhook():
     data = request.get_json()
+    print("Received data:", data)
     
     if data.get("object") == "page":
         for entry in data.get("entry", []):
@@ -84,21 +86,18 @@ def get_ai_response(sender_id, prompt):
         except Exception as e:
             print("Groq API failed, trying Gemini. Error:", e)
 
-    # --- চেষ্টা ২: Gemini API (Groq ফেইল করলে বা না থাকলে) ---
+    # --- চেষ্টা ২: Gemini API ---
     if not bot_reply and gemini_model:
         try:
-            # জেমিনির জন্য প্রম্পট এবং বর্তমান মেসেজ পাঠানো
             full_prompt = f"{SYSTEM_PROMPT}\n\nইউজারের মেসেজ: {prompt}"
             response = gemini_model.generate_content(full_prompt)
             bot_reply = response.text
         except Exception as e:
             print("Gemini API also failed. Error:", e)
 
-    # যদি দুটোই ফেইল করে
     if not bot_reply:
         bot_reply = "সাব্বির আমাকে একটু আপডেট করতেছে, একটু অপেক্ষা করুন।"
 
-    # হিস্ট্রি আপডেট
     history.append({"role": "assistant", "content": bot_reply})
     if len(history) > 20:
         user_histories[sender_id] = history[-20:]
@@ -112,7 +111,8 @@ def send_messenger_message(recipient_id, text):
         "recipient": {"id": recipient_id},
         "message": {"text": text}
     }
-    requests.post(url, json=payload, headers=headers)
+    response = requests.post(url, json=payload, headers=headers)
+    print("Messenger API Response:", response.text)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
