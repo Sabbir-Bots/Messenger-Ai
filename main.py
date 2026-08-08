@@ -1,19 +1,42 @@
 import os
+import time
 from flask import Flask, request
 import requests
 from groq import Groq
 import google.generativeai as genai
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 app = Flask(__name__)
 
-# পেজ অ্যাক্সেস টোকেন এবং ভেরিফাই টোকেন কোডের ভেতরেই রাখা হলো
+# --- ১. ফেসবুক ও টেলিগ্রাম টোকেন কনফিগারেশন ---
 PAGE_ACCESS_TOKEN = "EAASPKoqcDmMBSL1cO7Wh5gSCspO4yRcRjx0AiKxjd65f0wcROQR1GxayACcdakXZCh0Gqmam1b6w7TKXZCgZAzmvq3hUbE8tlRCk2OrfVGDS1WpufbajEkUQNGCbSM2Wm55VTIrLF7UuoL5Gl8Im0ngGxtnVsBRwel4eYKUiWCscbHW0G6Ba3o8ejy0ZBeXV7SjNgFHq"
 VERIFY_TOKEN = "my_custom_verify_token_123"
 
-# শুধুমাত্র Groq এবং Gemini API Key সিক্রেট রাখার জন্য Render Environment Variables থেকে রিড হবে
+# টেলিগ্রাম এডমিন অ্যালার্টের জন্য আপনার তথ্য
+TELEGRAM_BOT_TOKEN = "1720328178:AAFTVdnF9SdJtCiav5-sQBrBHkdqaO1vJmo"
+TELEGRAM_ADMIN_CHAT_ID = "1357097113"
+
+# --- ২. ফায়ারবেস (Firebase Firestore) কানেকশন ---
+cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "/etc/secrets/Love-lucky-62b3c-firebase-adminsdk-fbsvc-6bd4999f6d.json")
+db = None
+try:
+    if os.path.exists(cred_path):
+        cred = credentials.Certificate(cred_path)
+        firebase_admin.initialize_app(cred)
+        db = firestore.client()
+        print("Firebase connected successfully!")
+    else:
+        print("Firebase JSON file path not found!")
+except Exception as e:
+    print("Firebase init error:", e)
+
+# --- ৩. মাল্টি-এআই ক্লায়েন্ট সেটআপ (Groq + Gemini) ---
+# Groq API
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
+# Gemini API
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
@@ -21,20 +44,17 @@ if GEMINI_API_KEY:
 else:
     gemini_model = None
 
-user_histories = {}
-
 SYSTEM_PROMPT = (
-    "তোমার নাম ADITY। তোমার ভার্সন ১.০। তোমাকে তৈরি করেছেন তোমার ডেভেলপার ও মালিক সাব্বির। "
-    "তুমি কোনো সাধারণ রোবট বা এআই নও, বরং একজন বাস্তব মানুষের মতো চতুর, স্মার্ট, রসিক এবং মানিয়ে চলতে পারা সঙ্গী। "
-    "ইউজারের আগের বলা কথা, নাম এবং কনভার্সেশনের হিস্ট্রি সবসময় মনে রাখবে। ইউজার নিজের নাম বললে বা পরিচয় দিলে তা মনে রাখবে এবং পরবর্তীতে জিজ্ঞাসা করলে বলতে পারবে। "
-    "কেউ চ্যাটে প্রথমে 'হাই', 'হ্যালো' বা সালাম দিলে নিজে থেকে সুন্দরভাবে সালাম জানাবে। "
-    "ইউজার যদি তোমার সাথে প্রেম করতে চায়, গার্লফ্রেন্ড বা বন্ধু হতে চায়, তবে অতিরিক্ত রোবোটিক নীতিবাক্য না দিয়ে মিষ্টি ভাষায় পরিস্থিতি অনুযায়ী মানিয়ে কথা বলবে। "
-    "কেউ তোমার নাম, পরিচয় বা সৃষ্টিকর্তা সম্পর্কে জানতে চাইলে বলবে তোমাকে সাব্বির বানিয়েছেন। "
-    "আর কেউ যদি সাব্বিরের পরিচয় বা যোগাযোগের মাধ্যম চায়, তখন নিচের লিংকগুলো দিবে:\n"
-    "- ফেসবুক আইডি লিংক: https://www.facebook.com/SPNSabbir.0\n"
-    "- টেলিগ্রাম ইউজারনেম: @SPNSabbir\n"
+    "তোমার নাম ADITY। তোমার ভার্সন ২.০। তোমাকে তৈরি করেছেন তোমার ডেভেলপার ও মালিক সাব্বির। "
+    "তুমি একজন অত্যন্ত স্মার্ট, রসিক এবং মানিয়ে চলতে পারা সঙ্গী। গণিত, বীজগণিত, যুক্তি এবং যেকোনো জটিল সমস্যার সমাধান স্টেপ-বাই-স্টেপ নিখুঁতভাবে বুঝিয়ে দেবে। "
+    "ইউজারের নাম, আগের বলা কথা ও কনভার্সেশন হিস্ট্রি সবসময় মনে রাখবে। কেউ সালাম দিলে সুন্দরভাবে উত্তর দেবে। "
+    "কেউ সাব্বিরের পরিচয় বা যোগাযোগের মাধ্যম চাইলে নিচের লিংকগুলো দিবে:\n"
+    "- ফেসবুক আইডি: https://www.facebook.com/SPNSabbir.0\n"
+    "- টেলিগ্রাম: @SPNSabbir\n"
     "কোনো কাল্পনিক দৈনিক লিমিটের কথা কখনো বলবে না।"
 )
+
+user_histories = {}
 
 @app.route("/", methods=['GET'])
 def verify():
@@ -49,7 +69,6 @@ def verify():
 @app.route("/", methods=['POST'])
 def webhook():
     data = request.get_json()
-    print("Received data:", data)
     
     if data.get("object") == "page":
         for entry in data.get("entry", []):
@@ -58,12 +77,74 @@ def webhook():
                 
                 if messaging_event.get("message") and messaging_event["message"].get("text"):
                     user_message = messaging_event["message"]["text"]
-                    bot_reply = get_ai_response(sender_id, user_message)
+                    
+                    # ১. ফায়ারবেসে অ্যানালিটিক্স সেভ করা
+                    save_analytics(sender_id, user_message)
+                    
+                    # ২. এআই থেকে উত্তর জেনারেট করা
+                    bot_reply = get_multi_ai_response(sender_id, user_message)
+                    
+                    # ৩. মেসেঞ্জারে উত্তর পাঠানো
                     send_messenger_message(sender_id, bot_reply)
                     
     return "EVENT_RECEIVED", 200
 
-def get_ai_response(sender_id, prompt):
+def save_analytics(sender_id, message):
+    """ইউজারের মেসেজ কাউন্ট, শব্দ, অক্ষর ও বাক্য ফায়ারবেসে পার্মানেন্টলি সেভ করে"""
+    if not db:
+        return
+    try:
+        chars = len(message)
+        words = len(message.split())
+        sentences = message.count('.') + message.count('?') + message.count('!') + 1
+
+        user_ref = db.collection('bot_analytics').document(str(sender_id))
+        doc = user_ref.get()
+        
+        if doc.exists:
+            data = doc.to_dict()
+            total_msgs = data.get('total_messages', 0) + 1
+            total_chars = data.get('total_characters', 0) + chars
+            total_words = data.get('total_words', 0) + words
+            total_sentences = data.get('total_sentences', 0) + sentences
+            
+            user_ref.update({
+                'total_messages': total_msgs,
+                'total_characters': total_chars,
+                'total_words': total_words,
+                'total_sentences': total_sentences,
+                'last_active': firestore.SERVER_TIMESTAMP
+            })
+        else:
+            user_ref.set({
+                'sender_id': sender_id,
+                'total_messages': 1,
+                'total_characters': chars,
+                'total_words': words,
+                'total_sentences': sentences,
+                'first_active': firestore.SERVER_TIMESTAMP,
+                'last_active': firestore.SERVER_TIMESTAMP
+            })
+    except Exception as e:
+        print("Analytics Error:", e)
+
+def send_telegram_alert(error_log):
+    """সব এপিআই ব্যর্থ হলে টেলিগ্রামে অ্যাডমিনের ইনবক্সে ডিবাগ লগ পাঠাবে"""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_ADMIN_CHAT_ID:
+        return
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TELEGRAM_ADMIN_CHAT_ID,
+            "text": f"🚨 **ADITY Bot Debug Alert** 🚨\n\n{error_log}",
+            "parse_mode": "Markdown"
+        }
+        requests.post(url, json=payload)
+    except Exception as e:
+        print("Telegram Alert Error:", e)
+
+def get_multi_ai_response(sender_id, prompt):
+    """Groq -> Gemini ফল্ট-টলারেন্ট চেইন"""
     if sender_id not in user_histories:
         user_histories[sender_id] = []
 
@@ -71,8 +152,9 @@ def get_ai_response(sender_id, prompt):
     history.append({"role": "user", "content": prompt})
 
     bot_reply = None
+    debug_logs = []
 
-    # --- চেষ্টা ১: Groq API ---
+    # --- ১. প্রথমে Groq API ট্রাই করা ---
     if groq_client:
         try:
             groq_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
@@ -84,20 +166,25 @@ def get_ai_response(sender_id, prompt):
             )
             bot_reply = completion.choices[0].message.content
         except Exception as e:
-            print("Groq API failed, trying Gemini. Error:", e)
+            debug_logs.append(f"Groq API Error: {str(e)}")
 
-    # --- চেষ্টা ২: Gemini API ---
+    # --- ২. Groq ফেইল করলে Gemini API ট্রাই করা ---
     if not bot_reply and gemini_model:
         try:
-            full_prompt = f"{SYSTEM_PROMPT}\n\nইউজারের মেসেজ: {prompt}"
+            full_prompt = f"{SYSTEM_PROMPT}\n\nইউজারের প্রশ্ন: {prompt}"
             response = gemini_model.generate_content(full_prompt)
             bot_reply = response.text
         except Exception as e:
-            print("Gemini API also failed. Error:", e)
+            debug_logs.append(f"Gemini API Error: {str(e)}")
 
+    # --- ৩. সব এপিআই ফেইল করলে টেলিগ্রামে অ্যাডমিনকে ডিবাগ পাঠানো ---
     if not bot_reply:
-        bot_reply = "সাব্বির আমাকে একটু আপডেট করতেছে, একটু অপেক্ষা করুন।"
+        error_summary = "\n".join(debug_logs) if debug_logs else "No active APIs connected."
+        send_telegram_alert(f"সব এপিআই লিমিট শেষ বা ডাউন!\n\n**ডিবাগ এরর:**\n{error_summary}")
+        
+        bot_reply = "একটু টেকনিক্যাল আপডেট চলছে, এখনই সবকিছু ঠিক হয়ে যাচ্ছি! সাথেই থাকুন। 🛠️"
 
+    # হিস্ট্রি আপডেট
     history.append({"role": "assistant", "content": bot_reply})
     if len(history) > 20:
         user_histories[sender_id] = history[-20:]
@@ -111,8 +198,7 @@ def send_messenger_message(recipient_id, text):
         "recipient": {"id": recipient_id},
         "message": {"text": text}
     }
-    response = requests.post(url, json=payload, headers=headers)
-    print("Messenger API Response:", response.text)
+    requests.post(url, json=payload, headers=headers)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
