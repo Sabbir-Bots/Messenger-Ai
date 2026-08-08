@@ -1,5 +1,4 @@
 import os
-import time
 from flask import Flask, request
 import requests
 from groq import Groq
@@ -7,15 +6,13 @@ import google.generativeai as genai
 
 app = Flask(__name__)
 
-# সিক্রেট টোকেনসমূহ শুধুমাত্র Render Environment Variables থেকে রিড হবে
 PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN")
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN")
 
-# ১. Groq API Key (Render Environment Variable থেকে আসবে)
+# API Keys
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-# ২. Gemini API Key (Render Environment Variable থেকে আসবে)
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
@@ -23,7 +20,6 @@ if GEMINI_API_KEY:
 else:
     gemini_model = None
 
-# ইউজারদের চ্যাট হিস্ট্রি মেমোরি
 user_histories = {}
 
 SYSTEM_PROMPT = (
@@ -72,6 +68,8 @@ def get_ai_response(sender_id, prompt):
     history = user_histories[sender_id]
     history.append({"role": "user", "content": prompt})
 
+    bot_reply = None
+
     # --- চেষ্টা ১: Groq API ---
     if groq_client:
         try:
@@ -83,30 +81,29 @@ def get_ai_response(sender_id, prompt):
                 max_tokens=1024
             )
             bot_reply = completion.choices[0].message.content
-            history.append({"role": "assistant", "content": bot_reply})
-            
-            if len(history) > 20:
-                user_histories[sender_id] = history[-20:]
-                
-            return bot_reply
         except Exception as e:
-            print("Groq API failed, switching to Gemini. Error:", e)
+            print("Groq API failed, trying Gemini. Error:", e)
 
-    # --- চেষ্টা ২: Gemini API (ফেল করলে ব্যাকআপ) ---
-    if gemini_model:
+    # --- চেষ্টা ২: Gemini API (Groq ফেইল করলে বা না থাকলে) ---
+    if not bot_reply and gemini_model:
         try:
-            response = gemini_model.generate_content(f"{SYSTEM_PROMPT}\n\nবর্তমান মেসেজ: {prompt}")
+            # জেমিনির জন্য প্রম্পট এবং বর্তমান মেসেজ পাঠানো
+            full_prompt = f"{SYSTEM_PROMPT}\n\nইউজারের মেসেজ: {prompt}"
+            response = gemini_model.generate_content(full_prompt)
             bot_reply = response.text
-            
-            history.append({"role": "assistant", "content": bot_reply})
-            if len(history) > 20:
-                user_histories[sender_id] = history[-20:]
-                
-            return bot_reply
         except Exception as e:
             print("Gemini API also failed. Error:", e)
 
-    return "সাব্বির আমাকে একটু আপডেট করতেছে, একটু অপেক্ষা করুন।"
+    # যদি দুটোই ফেইল করে
+    if not bot_reply:
+        bot_reply = "সাব্বির আমাকে একটু আপডেট করতেছে, একটু অপেক্ষা করুন।"
+
+    # হিস্ট্রি আপডেট
+    history.append({"role": "assistant", "content": bot_reply})
+    if len(history) > 20:
+        user_histories[sender_id] = history[-20:]
+        
+    return bot_reply
 
 def send_messenger_message(recipient_id, text):
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
