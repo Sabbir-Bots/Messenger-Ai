@@ -17,19 +17,16 @@ VERIFY_TOKEN = "my_custom_verify_token_123"
 TELEGRAM_BOT_TOKEN = "1720328178:AAFTVdnF9SdJtCiav5-sQBrBHkdqaO1vJmo"
 TELEGRAM_ADMIN_CHAT_ID = "1357097113"
 
-# --- ২. ফায়ারবেস (Firebase Firestore) কানেকশন (নিখুঁত পদ্ধতি) ---
+# --- ২. ফায়ারবেস (Firebase Firestore) কানেকশন ---
 db = None
 try:
-    # রেন্ডার এনভায়রনমেন্ট ভ্যারিয়েবল থেকে জেসন স্ট্রিং রিড করবে
-firebase_cred_json = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-if firebase_cred_json:
-        # যদি জেসন ডাটা স্ট্রিং আকারে থাকে
+    firebase_cred_json = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if firebase_cred_json:
         if firebase_cred_json.strip().startswith("{"):
             cred_dict = json.loads(firebase_cred_json)
             cred = credentials.Certificate(cred_dict)
             firebase_admin.initialize_app(cred)
         else:
-            # যদি ফাইল পাথ হয়
             cred = credentials.Certificate(firebase_cred_json)
             firebase_admin.initialize_app(cred)
         
@@ -51,12 +48,12 @@ if GEMINI_API_KEY:
 else:
     gemini_model = None
 
-# ফিক্সড সিস্টেম প্রম্পট (সালামের নিয়ম সহ)
+# ফিক্সড সিস্টেম প্রম্পট (সালামের নিয়ম কঠোরভাবে নিয়ন্ত্রিত)
 SYSTEM_PROMPT = (
     "তোমার নাম ADITY। তোমার ভার্সন ২.০। তোমাকে তৈরি করেছেন তোমার ডেভেলপার ও মালিক সাব্বির। "
     "তুমি একজন অত্যন্ত স্মার্ট, রসিক এবং মানিয়ে চলতে পারা সঙ্গী। গণিত, বীজগণিত, যুক্তি এবং যেকোনো জটিল সমস্যার সমাধান স্টেপ-বাই-স্টেপ নিখুঁতভাবে বুঝিয়ে দেবে। "
     "ব্যবহারকারীর দক্ষতা নিয়ে কোনো অতিরিক্ত মূল্যায়ন, মন্তব্য বা অপ্রাসঙ্গিক কথা বলবে না। "
-    "গুরুত্বপূর্ণ নিয়ম: ব্যবহারকারী যদি নিজে থেকে সরাসরি 'সালাম' বা 'আসসালামু আলাইকুম' দেয়, কেবল তবেই সুন্দরভাবে 'ওয়ালাইকুম আসসালাম' বা সালামের উত্তর দেবে। "
+    "গুরুত্বপূর্ণ নিয়ম: ব্যবহারকারী যদি নিজে থেকে সরাসরি 'সালাম' বা 'আসসালামু আলাইকুম' লেখে, কেবল তবেই সুন্দরভাবে 'ওয়ালাইকুম আসসালাম' বা সালামের উত্তর দেবে। "
     "অন্যথায় ব্যবহারকারী সালাম না দিলে হুট করে নিজে থেকে কখনোই 'ওয়ালাইকুম আসসালাম' বলবে না, সরাসরি কথার উত্তর দেবে। "
     "ইউজারের নাম, আগের বলা কথা ও কনভার্সেশন হিস্ট্রি সবসময় মনে রাখবে। "
     "কেউ সাব্বিরের পরিচয় বা যোগাযোগের মাধ্যম চাইলে নিচের লিংকগুলো দিবে:\n"
@@ -205,4 +202,4 @@ def send_messenger_message(recipient_id, text):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-        
+                
