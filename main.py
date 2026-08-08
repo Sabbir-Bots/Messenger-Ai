@@ -3,8 +3,8 @@ import json
 import time
 from flask import Flask, request
 import requests
+from google import genai
 from groq import Groq
-import google.generativeai as genai
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -39,17 +39,12 @@ try:
 except Exception as e:
     print("Firebase init error:", e)
 
-# --- ৩. মাল্টি-এআই ক্লায়েন্ট সেটআপ ---
+# --- ৩. মাল্টি-এআই ক্লায়েন্ট সেটআপ (Gemini & Groq) ---
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
-
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    # জেমিনির বর্তমান স্ট্যান্ডার্ড মডেল নাম ব্যবহার করা হলো
-    gemini_model = genai.GenerativeModel("gemini-1.5-flash")
-else:
-    gemini_model = None
 
 # ফিক্সড সিস্টেম প্রম্পট (সালামের নিয়ম কঠোরভাবে নিয়ন্ত্রিত)
 SYSTEM_PROMPT = (
@@ -87,10 +82,10 @@ def webhook():
                 sender_id = messaging_event.get("sender", {}).get("id")
                 
                 if messaging_event.get("message") and messaging_event["message"].get("text"):
-                    user_message = messaging_event["message"]["text"]
+                    user_message = messaging_event["message"].get("text")
                     
                     save_analytics(sender_id, user_message)
-                    bot_reply, used_ai = get_multi_ai_response(sender_id, user_message)
+                    bot_reply, used_ai = get_ai_response(sender_id, user_message)
                     send_messenger_message(sender_id, bot_reply)
                     
     return "EVENT_RECEIVED", 200
@@ -149,7 +144,7 @@ def send_telegram_debug_alert(error_log, active_ai_info):
     except Exception as e:
         print("Telegram Debug Alert Error:", e)
 
-def get_multi_ai_response(sender_id, prompt):
+def get_ai_response(sender_id, prompt):
     if sender_id not in user_histories:
         user_histories[sender_id] = []
 
@@ -160,17 +155,20 @@ def get_multi_ai_response(sender_id, prompt):
     debug_logs = []
     used_ai_name = None
 
-    # প্রথমে জেমিনি দিয়ে চেষ্টা করবে
-    if gemini_model and not bot_reply:
+    # ১. প্রথমে জেমিনি দিয়ে চেষ্টা করা হবে
+    if gemini_client and not bot_reply:
         try:
             full_prompt = f"{SYSTEM_PROMPT}\n\nইউজারের প্রশ্ন: {prompt}"
-            response = gemini_model.generate_content(full_prompt)
+            response = gemini_client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=full_prompt,
+            )
             bot_reply = response.text
-            used_ai_name = "Google Gemini API"
+            used_ai_name = "Google Gemini API (gemini-2.5-flash)"
         except Exception as e:
             debug_logs.append(f"❌ Gemini API Failed: {str(e)}")
 
-    # জেমিনি কাজ না করলে গ্রোক দিয়ে চেষ্টা করবে
+    # ২. জেমিনি কাজ না করলে গ্রোক ব্যাকআপ হিসেবে কাজ করবে
     if not bot_reply and groq_client:
         try:
             groq_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
@@ -181,7 +179,7 @@ def get_multi_ai_response(sender_id, prompt):
                 max_tokens=1024
             )
             bot_reply = completion.choices[0].message.content
-            used_ai_name = "Groq API"
+            used_ai_name = "Groq API (llama-3.3-70b-versatile)"
         except Exception as e:
             debug_logs.append(f"❌ Groq API Failed: {str(e)}")
 
@@ -198,6 +196,9 @@ def get_multi_ai_response(sender_id, prompt):
         
     return bot_reply, used_ai_name
 
+def service_messenger_message(recipient_id, text):
+    pass
+
 def send_messenger_message(recipient_id, text):
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
     headers = {"Content-Type": "application/json"}
@@ -209,4 +210,3 @@ def send_messenger_message(recipient_id, text):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-        
