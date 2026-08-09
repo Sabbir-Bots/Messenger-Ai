@@ -125,10 +125,10 @@ def get_gemini_response(sender_id, prompt):
     used_ai_name = None
 
     try:
-        # প্রতিবার নতুন বা পুরোনো সেশন নিশ্চিত করা এবং ত্রুটিমুক্ত রাখা
         if sender_id not in user_chats:
+            # মডেল নাম পরিবর্তন করে সাধারণ ও নিশ্চিত সমর্থিত ভার্সন দেওয়া হলো
             model = genai.GenerativeModel(
-                model_name="gemini-1.5-flash",
+                model_name="gemini-pro",
                 system_instruction=SYSTEM_PROMPT
             )
             user_chats[sender_id] = model.start_chat(history=[])
@@ -136,20 +136,17 @@ def get_gemini_response(sender_id, prompt):
         chat = user_chats[sender_id]
         response = chat.send_message(prompt)
         
-        # রেসপন্স এবং টেক্সট সফলভাবে এসেছে কিনা যাচাই করা
         if response and hasattr(response, 'text') and response.text:
             bot_reply = response.text
-            used_ai_name = "Google Gemini API (gemini-1.5-flash)"
+            used_ai_name = "Google Gemini API (gemini-pro)"
         else:
-            # সেফটি ব্লক বা ব্ল্যাঙ্ক রেসপন্স হলে চ্যাট হিস্ট্রি রিসেট করে ফ্রেশ উত্তর দেওয়া
             if sender_id in user_chats:
                 del user_chats[sender_id]
-            bot_reply = "আমি এই বিষয়ে কথা বলতে পারছি না। অন্য কোনো সাধারণ বা শিক্ষণীয় বিষয়ে কথা বলতে পারি!"
+            bot_reply = "আমি এই বিষয়ে কথা বলতে পারছি না। অন্য কোনো বিষয়ে কথা বলতে পারি!"
             used_ai_name = "Safety Blocked / Filtered"
             
     except Exception as e:
         print(f"❌ Gemini API Error: {str(e)}")
-        # যেকোনো এক্সেপশন বা এরর আস লেও চ্যাট হিস্ট্রি পরিষ্কার করে দেওয়া যাতে পরবর্তী মেসেজে আর সমস্যা না হয়
         if sender_id in user_chats:
             del user_chats[sender_id]
             
@@ -170,3 +167,4 @@ def send_messenger_message(recipient_id, text):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+            
