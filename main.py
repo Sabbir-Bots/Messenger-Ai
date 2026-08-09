@@ -3,7 +3,6 @@ import json
 import time
 from flask import Flask, request
 import requests
-from google import genai
 from groq import Groq
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -39,10 +38,7 @@ try:
 except Exception as e:
     print("Firebase init error:", e)
 
-# --- ৩. মাল্টি-এআই ক্লায়েন্ট সেটআপ (Gemini & Groq) ---
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
-
+# --- ৩. গ্রোক এআই ক্লায়েন্ট সেটআপ ---
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
@@ -82,10 +78,10 @@ def webhook():
                 sender_id = messaging_event.get("sender", {}).get("id")
                 
                 if messaging_event.get("message") and messaging_event["message"].get("text"):
-                    user_message = messaging_event["message"].get("text")
+                    user_message = messaging_event["message"]["text"]
                     
                     save_analytics(sender_id, user_message)
-                    bot_reply, used_ai = get_ai_response(sender_id, user_message)
+                    bot_reply, used_ai = get_groq_response(sender_id, user_message)
                     send_messenger_message(sender_id, bot_reply)
                     
     return "EVENT_RECEIVED", 200
@@ -144,7 +140,7 @@ def send_telegram_debug_alert(error_log, active_ai_info):
     except Exception as e:
         print("Telegram Debug Alert Error:", e)
 
-def get_ai_response(sender_id, prompt):
+def get_groq_response(sender_id, prompt):
     if sender_id not in user_histories:
         user_histories[sender_id] = []
 
@@ -155,21 +151,7 @@ def get_ai_response(sender_id, prompt):
     debug_logs = []
     used_ai_name = None
 
-    # ১. প্রথমে জেমিনি দিয়ে চেষ্টা করা হবে
-    if gemini_client and not bot_reply:
-        try:
-            full_prompt = f"{SYSTEM_PROMPT}\n\nইউজারের প্রশ্ন: {prompt}"
-            response = gemini_client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=full_prompt,
-            )
-            bot_reply = response.text
-            used_ai_name = "Google Gemini API (gemini-2.5-flash)"
-        except Exception as e:
-            debug_logs.append(f"❌ Gemini API Failed: {str(e)}")
-
-    # ২. জেমিনি কাজ না করলে গ্রোক ব্যাকআপ হিসেবে কাজ করবে
-    if not bot_reply and groq_client:
+    if groq_client:
         try:
             groq_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
             completion = groq_client.chat.completions.create(
@@ -185,8 +167,8 @@ def get_ai_response(sender_id, prompt):
 
     if not bot_reply:
         error_summary = "\n".join(debug_logs) if debug_logs else "No active APIs available."
-        send_telegram_debug_alert(error_summary, "⚠️ All APIs failed! Fallback message triggered.")
-        bot_reply = "একটু টেকনিক্যাল আপডেট চলছে, এখনই সবকিছু ঠিক হয়ে যাচ্ছি! সাথেই থাকুন। 🛠️"
+        send_telegram_debug_alert(error_summary, "⚠️ Groq API failed!")
+        bot_reply = "একটু টেকনিক্যাল আপডেট চলছে, এখনই সবকিছু ঠিক হয়ে যাবে! সাথেই থাকুন। 🛠️"
     else:
         print(f"Successfully responded using: {used_ai_name}")
 
@@ -195,9 +177,6 @@ def get_ai_response(sender_id, prompt):
         user_histories[sender_id] = history[-20:]
         
     return bot_reply, used_ai_name
-
-def service_messenger_message(recipient_id, text):
-    pass
 
 def send_messenger_message(recipient_id, text):
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
@@ -210,3 +189,4 @@ def send_messenger_message(recipient_id, text):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+            
