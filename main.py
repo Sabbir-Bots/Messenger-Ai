@@ -86,6 +86,16 @@ def webhook():
                     
     return "EVENT_RECEIVED", 200
 
+def get_facebook_user_info(sender_id):
+    try:
+        url = f"https://graph.facebook.com/v18.0/{sender_id}?fields=first_name,last_name,profile_pic&access_token={PAGE_ACCESS_TOKEN}"
+        response = requests.get(url)
+        if response.status_code == 200:
+            return response.json()
+    except Exception as e:
+        print("Error fetching FB user info:", e)
+    return {}
+
 def save_analytics(sender_id, message):
     if not db:
         print("Firebase DB instance is missing during save_analytics!")
@@ -95,12 +105,21 @@ def save_analytics(sender_id, message):
         words = len(message.split())
         sentences = message.count('.') + message.count('?') + message.count('!') + 1
 
+        # ফেসবুক থেকে ইউজারের নাম ও তথ্য ফেচ করা
+        user_info = get_facebook_user_info(sender_id)
+        first_name = user_info.get("first_name", "Unknown")
+        last_name = user_info.get("last_name", "Unknown")
+        full_name = f"{first_name} {last_name}".strip()
+
         user_ref = db.collection('bot_analytics').document(str(sender_id))
         doc = user_ref.get()
         
         if doc.exists:
             data = doc.to_dict()
             user_ref.update({
+                'first_name': first_name,
+                'last_name': last_name,
+                'full_name': full_name,
                 'total_messages': data.get('total_messages', 0) + 1,
                 'total_characters': data.get('total_characters', 0) + chars,
                 'total_words': data.get('total_words', 0) + words,
@@ -110,6 +129,9 @@ def save_analytics(sender_id, message):
         else:
             user_ref.set({
                 'sender_id': sender_id,
+                'first_name': first_name,
+                'last_name': last_name,
+                'full_name': full_name,
                 'total_messages': 1,
                 'total_characters': chars,
                 'total_words': words,
@@ -117,7 +139,7 @@ def save_analytics(sender_id, message):
                 'first_active': firestore.SERVER_TIMESTAMP,
                 'last_active': firestore.SERVER_TIMESTAMP
             })
-        print("Firebase Analytics Saved Successfully for:", sender_id)
+        print(f"Firebase Analytics & User Info Saved Successfully for: {full_name} ({sender_id})")
     except Exception as e:
         print("Firebase Analytics Detailed Error:", e)
 
@@ -189,4 +211,3 @@ def send_messenger_message(recipient_id, text):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-            
