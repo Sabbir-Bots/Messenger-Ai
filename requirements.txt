@@ -1,6 +1,5 @@
 Flask
 requests
-groq
-google-generativeai
+google-genai
 firebase-admin
 gunicorn
