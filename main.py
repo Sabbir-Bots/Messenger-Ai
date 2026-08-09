@@ -3,7 +3,7 @@ import json
 import time
 from flask import Flask, request
 import requests
-from google import genai
+import google.generativeai as genai
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -40,7 +40,8 @@ except Exception as e:
 
 # --- ৩. জেমিনি এআই ক্লায়েন্ট সেটআপ ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 SYSTEM_PROMPT = (
     "তোমার নাম ADITY। তোমার ভার্সন ২.০। তোমাকে তৈরি করেছেন তোমার ডেভেলপার ও মালিক সাব্বির। "
@@ -54,7 +55,7 @@ SYSTEM_PROMPT = (
     "কোনো কাল্পনিক দৈনিক লিমিটের কথা কখনো বলবে না।"
 )
 
-user_histories = {}
+user_chats = {}
 
 @app.route("/", methods=['GET'])
 def verify():
@@ -139,32 +140,27 @@ def send_telegram_debug_alert(error_log, active_ai_info):
         print("Telegram Debug Alert Error:", e)
 
 def get_gemini_response(sender_id, prompt):
-    if sender_id not in user_histories:
-        user_histories[sender_id] = []
-
-    history = user_histories[sender_id]
-    history.append({"role": "user", "parts": [{"text": prompt}]})
-
     bot_reply = None
     debug_logs = []
     used_ai_name = None
 
-    if gemini_client:
-        try:
-            # ফরম্যাট অনুযায়ী সম্পূর্ণ চ্যাট হিস্ট্রি এবং সিস্টেম প্রম্পট পাঠানো হচ্ছে
-            contents = [SYSTEM_PROMPT]
-            for h in history:
-                role = "user" if h["role"] == "user" else "model"
-                contents.append(h["parts"][0]["text"])
-
-            response = gemini_client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=contents,
+    try:
+        if sender_id not in user_chats:
+            model = genai.GenerativeModel(
+                model_name="gemini-1.5-flash",
+                system_instruction=SYSTEM_PROMPT
             )
-            bot_reply = response.text
-            used_ai_name = "Google Gemini API (gemini-2.5-flash)"
-        except Exception as e:
-            debug_logs.append(f"❌ Gemini API Failed: {str(e)}")
+            user_chats[sender_id] = model.start_chat(history=[])
+        
+        chat = user_chats[sender_id]
+        response = chat.send_message(prompt)
+        bot_reply = response.text
+        used_ai_name = "Google Gemini API (gemini-1.5-flash)"
+    except Exception as e:
+        debug_logs.append(f"❌ Gemini API Failed: {str(e)}")
+        # যদি চ্যাট সেশনে কোনো সমস্যা হয়, ইনস্ট্যান্স রিসেট করা হবে
+        if sender_id in user_chats:
+            del user_chats[sender_id]
 
     if not bot_reply:
         error_summary = "\n".join(debug_logs) if debug_logs else "No active APIs available."
@@ -172,10 +168,6 @@ def get_gemini_response(sender_id, prompt):
         bot_reply = "একটু টেকনিক্যাল আপডেট চলছে, এখনই সবকিছু ঠিক হয়ে যাবে! সাথেই থাকুন। 🛠️"
     else:
         print(f"Successfully responded using: {used_ai_name}")
-
-    history.append({"role": "model", "parts": [{"text": bot_reply}]})
-    if len(history) > 20:
-        user_histories[sender_id] = history[-20:]
         
     return bot_reply, used_ai_name
 
