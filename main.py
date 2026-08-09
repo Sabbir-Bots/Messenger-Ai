@@ -120,31 +120,12 @@ def save_analytics(sender_id, message):
     except Exception as e:
         print("Firebase Analytics Detailed Error:", e)
 
-def send_telegram_debug_alert(error_log, active_ai_info):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_ADMIN_CHAT_ID:
-        return
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        report_text = (
-            f"🚨 **ADITY Bot Debug & Status Report** 🚨\n\n"
-            f"📌 **Current Status:** {active_ai_info}\n\n"
-            f"🔍 **API Error Logs:**\n{error_log}"
-        )
-        payload = {
-            "chat_id": TELEGRAM_ADMIN_CHAT_ID,
-            "text": report_text,
-            "parse_mode": "Markdown"
-        }
-        requests.post(url, json=payload)
-    except Exception as e:
-        print("Telegram Debug Alert Error:", e)
-
 def get_gemini_response(sender_id, prompt):
     bot_reply = None
-    debug_logs = []
     used_ai_name = None
 
     try:
+        # প্রতিবার নতুন বা পুরোনো সেশন নিশ্চিত করা এবং ত্রুটিমুক্ত রাখা
         if sender_id not in user_chats:
             model = genai.GenerativeModel(
                 model_name="gemini-1.5-flash",
@@ -155,20 +136,25 @@ def get_gemini_response(sender_id, prompt):
         chat = user_chats[sender_id]
         response = chat.send_message(prompt)
         
-        # জেমিনির সেফটি ব্লক বা ব্ল্যাঙ্ক রেসপন্স চেক করা
-        if response and response.text:
+        # রেসপন্স এবং টেক্সট সফলভাবে এসেছে কিনা যাচাই করা
+        if response and hasattr(response, 'text') and response.text:
             bot_reply = response.text
             used_ai_name = "Google Gemini API (gemini-1.5-flash)"
         else:
-            bot_reply = "দুঃখিত, এই বিষয়টি নিয়ে আমি কথা বলতে পারছি না। অন্য কোনো বিষয়ে সাহায্য করতে পারি কি?"
-            used_ai_name = "Google Gemini API (Safety Filtered)"
+            # সেফটি ব্লক বা ব্ল্যাঙ্ক রেসপন্স হলে চ্যাট হিস্ট্রি রিসেট করে ফ্রেশ উত্তর দেওয়া
+            if sender_id in user_chats:
+                del user_chats[sender_id]
+            bot_reply = "আমি এই বিষয়ে কথা বলতে পারছি না। অন্য কোনো সাধারণ বা শিক্ষণীয় বিষয়ে কথা বলতে পারি!"
+            used_ai_name = "Safety Blocked / Filtered"
             
     except Exception as e:
-        debug_logs.append(f"❌ Gemini API Failed: {str(e)}")
+        print(f"❌ Gemini API Error: {str(e)}")
+        # যেকোনো এক্সেপশন বা এরর আস লেও চ্যাট হিস্ট্রি পরিষ্কার করে দেওয়া যাতে পরবর্তী মেসেজে আর সমস্যা না হয়
         if sender_id in user_chats:
             del user_chats[sender_id]
             
-        bot_reply = "দুঃখিত, এই মুহূর্তে মেসেজটি প্রসেস করতে একটু সমস্যা হচ্ছে। অন্য কিছু জিজ্ঞেস করতে পারেন!"
+        bot_reply = "হ্যালো! বলুন, আপনাকে কীভাবে সাহায্য করতে পারি?"
+        used_ai_name = "Error Handled & Reset"
 
     print(f"Successfully responded using: {used_ai_name}")
     return bot_reply, used_ai_name
@@ -184,4 +170,3 @@ def send_messenger_message(recipient_id, text):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-        
