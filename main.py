@@ -1,20 +1,21 @@
 import os
 import json
-import time
 from flask import Flask, request
 import requests
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import firebase_admin
 from firebase_admin import credentials, firestore
 
 app = Flask(__name__)
 
-# --- ১. টোকেন ও কনফিগারেশন ---
-PAGE_ACCESS_TOKEN = "EAASPKoqcDmMBSL1cO7Wh5gSCspO4yRcRjx0AiKxjd65f0wcROQR1GxayACcdakXZCh0Gqmam1b6w7TKXZCgZAzmvq3hUbE8tlRCk2OrfVGDS1WpufbajEkUQNGCbSM2Wm55VTIrLF7UuoL5Gl8Im0ngGxtnVsBRwel4eYKUiWCscbHW0G6Ba3o8ejy0ZBeXV7SjNgFHq"
-VERIFY_TOKEN = "my_custom_verify_token_123"
+# --- ১. এনভায়রনমেন্ট ভ্যারিয়েবল থেকে টোকেন ও কনফিগারেশন লোড ---
+PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN")
+VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "my_custom_verify_token_123")
 
-TELEGRAM_BOT_TOKEN = "1720328178:AAFTVdnF9SdJtCiav5-sQBrBHkdqaO1vJmo"
-TELEGRAM_ADMIN_CHAT_ID = "1357097113"
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_ADMIN_CHAT_ID = os.environ.get("TELEGRAM_ADMIN_CHAT_ID")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # --- ২. ফায়ারবেস (Firebase Firestore) কানেকশন ---
 db = None
@@ -38,10 +39,10 @@ try:
 except Exception as e:
     print("Firebase init error:", e)
 
-# --- ৩. জেমিনি এআই ক্লায়েন্ট সেটআপ ---
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+# --- ৩. নতুন Google GenAI ক্লায়েন্ট সেটআপ ---
+client = None
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+    client = genai.Client(api_key=GEMINI_API_KEY)
 
 SYSTEM_PROMPT = (
     "তোমার নাম ADITY। তোমার ভার্সন ২.০। তোমাকে তৈরি করেছেন তোমার ডেভেলপার ও মালিক সাব্বির। "
@@ -55,6 +56,7 @@ SYSTEM_PROMPT = (
     "কোনো কাল্পনিক দৈনিক লিমিটের কথা কখনো বলবে না।"
 )
 
+# ব্যবহারকারীদের চ্যাট হিস্ট্রি সংরক্ষণের জন্য মেমোরি ডিকশনারি
 user_chats = {}
 
 @app.route("/", methods=['GET'])
@@ -87,7 +89,6 @@ def webhook():
 
 def save_analytics(sender_id, message):
     if not db:
-        print("Firebase DB instance is missing during save_analytics!")
         return
     try:
         chars = len(message)
@@ -116,47 +117,56 @@ def save_analytics(sender_id, message):
                 'first_active': firestore.SERVER_TIMESTAMP,
                 'last_active': firestore.SERVER_TIMESTAMP
             })
-        print(f"Firebase Analytics Saved Successfully for: {sender_id}")
     except Exception as e:
-        print("Firebase Analytics Detailed Error:", e)
+        print("Firebase Analytics Error:", e)
 
 def get_gemini_response(sender_id, prompt):
     bot_reply = None
     used_ai_name = None
 
+    if not client:
+        return "Gemini API Client is not initialized properly.", "Error"
+
     try:
+        # নতুন SDK অনুযায়ী চ্যাট সেশন হ্যান্ডলিং
         if sender_id not in user_chats:
-            # মডেল নাম পরিবর্তন করে সাধারণ ও নিশ্চিত সমর্থিত ভার্সন দেওয়া হলো
-            model = genai.GenerativeModel(
-                model_name="gemini-pro",
-                system_instruction=SYSTEM_PROMPT
+            user_chats[sender_id] = client.chats.create(
+                model="gemini-2.5-flash",
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    temperature=0.7
+                )
             )
-            user_chats[sender_id] = model.start_chat(history=[])
         
         chat = user_chats[sender_id]
         response = chat.send_message(prompt)
         
-        if response and hasattr(response, 'text') and response.text:
+        if response and response.text:
             bot_reply = response.text
-            used_ai_name = "Google Gemini API (gemini-pro)"
+            used_ai_name = "Google GenAI (gemini-2.5-flash)"
         else:
             if sender_id in user_chats:
                 del user_chats[sender_id]
-            bot_reply = "আমি এই বিষয়ে কথা বলতে পারছি না। অন্য কোনো বিষয়ে কথা বলতে পারি!"
-            used_ai_name = "Safety Blocked / Filtered"
+            bot_reply = "দুঃখিত, এই বিষয়টি ফিল্টারড হয়েছে। অন্য কিছু জিজ্ঞেস করতে পারেন।"
+            used_ai_name = "Safety Blocked"
             
     except Exception as e:
-        print(f"❌ Gemini API Error: {str(e)}")
+        error_msg = str(e)
+        print(f"❌ Gemini API Detailed Error: {error_msg}")
+        
+        # যদি চ্যাট সেশনে কোনো করাপ্টেড হিস্ট্রি থাকে তা ডিলিট করে দেওয়া
         if sender_id in user_chats:
             del user_chats[sender_id]
             
-        bot_reply = "হ্যালো! বলুন, আপনাকে কীভাবে সাহায্য করতে পারি?"
-        used_ai_name = "Error Handled & Reset"
+        bot_reply = f"টেকনিক্যাল ত্রুটি দেখা দিয়েছে। বিস্তারিত: {error_msg[:100]}"
+        used_ai_name = "Error Handled"
 
-    print(f"Successfully responded using: {used_ai_name}")
     return bot_reply, used_ai_name
 
 def send_messenger_message(recipient_id, text):
+    if not PAGE_ACCESS_TOKEN:
+        print("PAGE_ACCESS_TOKEN is missing!")
+        return
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
     headers = {"Content-Type": "application/json"}
     payload = {
@@ -167,4 +177,4 @@ def send_messenger_message(recipient_id, text):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-            
+        
