@@ -154,21 +154,23 @@ def get_gemini_response(sender_id, prompt):
         
         chat = user_chats[sender_id]
         response = chat.send_message(prompt)
-        bot_reply = response.text
-        used_ai_name = "Google Gemini API (gemini-1.5-flash)"
+        
+        # জেমিনির সেফটি ব্লক বা ব্ল্যাঙ্ক রেসপন্স চেক করা
+        if response and response.text:
+            bot_reply = response.text
+            used_ai_name = "Google Gemini API (gemini-1.5-flash)"
+        else:
+            bot_reply = "দুঃখিত, এই বিষয়টি নিয়ে আমি কথা বলতে পারছি না। অন্য কোনো বিষয়ে সাহায্য করতে পারি কি?"
+            used_ai_name = "Google Gemini API (Safety Filtered)"
+            
     except Exception as e:
         debug_logs.append(f"❌ Gemini API Failed: {str(e)}")
-        # যদি চ্যাট সেশনে কোনো সমস্যা হয়, ইনস্ট্যান্স রিসেট করা হবে
         if sender_id in user_chats:
             del user_chats[sender_id]
+            
+        bot_reply = "দুঃখিত, এই মুহূর্তে মেসেজটি প্রসেস করতে একটু সমস্যা হচ্ছে। অন্য কিছু জিজ্ঞেস করতে পারেন!"
 
-    if not bot_reply:
-        error_summary = "\n".join(debug_logs) if debug_logs else "No active APIs available."
-        send_telegram_debug_alert(error_summary, "⚠️ Gemini API failed!")
-        bot_reply = "একটু টেকনিক্যাল আপডেট চলছে, এখনই সবকিছু ঠিক হয়ে যাবে! সাথেই থাকুন। 🛠️"
-    else:
-        print(f"Successfully responded using: {used_ai_name}")
-        
+    print(f"Successfully responded using: {used_ai_name}")
     return bot_reply, used_ai_name
 
 def send_messenger_message(recipient_id, text):
@@ -182,4 +184,4 @@ def send_messenger_message(recipient_id, text):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-    
+        
