@@ -3,7 +3,7 @@ import json
 import time
 from flask import Flask, request
 import requests
-from groq import Groq
+from google import genai
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -38,18 +38,16 @@ try:
 except Exception as e:
     print("Firebase init error:", e)
 
-# --- ৩. গ্রোক এআই ক্লায়েন্ট সেটআপ ---
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+# --- ৩. জেমিনি এআই ক্লায়েন্ট সেটআপ ---
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-# ফিক্সড সিস্টেম প্রম্পট (সালামের নিয়ম কঠোরভাবে নিয়ন্ত্রিত)
 SYSTEM_PROMPT = (
     "তোমার নাম ADITY। তোমার ভার্সন ২.০। তোমাকে তৈরি করেছেন তোমার ডেভেলপার ও মালিক সাব্বির। "
     "তুমি একজন অত্যন্ত স্মার্ট, রসিক এবং মানিয়ে চলতে পারা সঙ্গী। গণিত, বীজগণিত, যুক্তি এবং যেকোনো জটিল সমস্যার সমাধান স্টেপ-বাই-স্টেপ নিখুঁতভাবে বুঝিয়ে দেবে। "
     "ব্যবহারকারীর দক্ষতা নিয়ে কোনো অতিরিক্ত মূল্যায়ন, মন্তব্য বা অপ্রাসঙ্গিক কথা বলবে না। "
     "গুরুত্বপূর্ণ নিয়ম: ব্যবহারকারী যদি নিজে থেকে সরাসরি 'সালাম' বা 'আসসালামু আলাইকুম' লেখে, কেবল তবেই সুন্দরভাবে 'ওয়ালাইকুম আসসালাম' বা সালামের উত্তর দেবে। "
     "অন্যথায় ব্যবহারকারী সালাম না দিলে হুট করে নিজে থেকে কখনোই 'ওয়ালাইকুম আসসালাম' বলবে না, সরাসরি কথার উত্তর দেবে। "
-    "ইউজারের নাম, আগের বলা কথা ও কনভার্সেশন হিস্ট্রি সবসময় মনে রাখবে। "
     "কেউ সাব্বিরের পরিচয় বা যোগাযোগের মাধ্যম চাইলে নিচের লিংকগুলো দিবে:\n"
     "- ফেসবুক আইডি: https://www.facebook.com/SPNSabbir.0\n"
     "- টেলিগ্রাম: @SPNSabbir\n"
@@ -81,20 +79,10 @@ def webhook():
                     user_message = messaging_event["message"]["text"]
                     
                     save_analytics(sender_id, user_message)
-                    bot_reply, used_ai = get_groq_response(sender_id, user_message)
+                    bot_reply, used_ai = get_gemini_response(sender_id, user_message)
                     send_messenger_message(sender_id, bot_reply)
                     
     return "EVENT_RECEIVED", 200
-
-def get_facebook_user_info(sender_id):
-    try:
-        url = f"https://graph.facebook.com/v18.0/{sender_id}?fields=first_name,last_name,profile_pic&access_token={PAGE_ACCESS_TOKEN}"
-        response = requests.get(url)
-        if response.status_code == 200:
-            return response.json()
-    except Exception as e:
-        print("Error fetching FB user info:", e)
-    return {}
 
 def save_analytics(sender_id, message):
     if not db:
@@ -105,21 +93,12 @@ def save_analytics(sender_id, message):
         words = len(message.split())
         sentences = message.count('.') + message.count('?') + message.count('!') + 1
 
-        # ফেসবুক থেকে ইউজারের নাম ও তথ্য ফেচ করা
-        user_info = get_facebook_user_info(sender_id)
-        first_name = user_info.get("first_name", "Unknown")
-        last_name = user_info.get("last_name", "Unknown")
-        full_name = f"{first_name} {last_name}".strip()
-
         user_ref = db.collection('bot_analytics').document(str(sender_id))
         doc = user_ref.get()
         
         if doc.exists:
             data = doc.to_dict()
             user_ref.update({
-                'first_name': first_name,
-                'last_name': last_name,
-                'full_name': full_name,
                 'total_messages': data.get('total_messages', 0) + 1,
                 'total_characters': data.get('total_characters', 0) + chars,
                 'total_words': data.get('total_words', 0) + words,
@@ -129,9 +108,6 @@ def save_analytics(sender_id, message):
         else:
             user_ref.set({
                 'sender_id': sender_id,
-                'first_name': first_name,
-                'last_name': last_name,
-                'full_name': full_name,
                 'total_messages': 1,
                 'total_characters': chars,
                 'total_words': words,
@@ -139,7 +115,7 @@ def save_analytics(sender_id, message):
                 'first_active': firestore.SERVER_TIMESTAMP,
                 'last_active': firestore.SERVER_TIMESTAMP
             })
-        print(f"Firebase Analytics & User Info Saved Successfully for: {full_name} ({sender_id})")
+        print(f"Firebase Analytics Saved Successfully for: {sender_id}")
     except Exception as e:
         print("Firebase Analytics Detailed Error:", e)
 
@@ -162,39 +138,42 @@ def send_telegram_debug_alert(error_log, active_ai_info):
     except Exception as e:
         print("Telegram Debug Alert Error:", e)
 
-def get_groq_response(sender_id, prompt):
+def get_gemini_response(sender_id, prompt):
     if sender_id not in user_histories:
         user_histories[sender_id] = []
 
     history = user_histories[sender_id]
-    history.append({"role": "user", "content": prompt})
+    history.append({"role": "user", "parts": [{"text": prompt}]})
 
     bot_reply = None
     debug_logs = []
     used_ai_name = None
 
-    if groq_client:
+    if gemini_client:
         try:
-            groq_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
-            completion = groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=groq_messages,
-                temperature=0.85,
-                max_tokens=1024
+            # ফরম্যাট অনুযায়ী সম্পূর্ণ চ্যাট হিস্ট্রি এবং সিস্টেম প্রম্পট পাঠানো হচ্ছে
+            contents = [SYSTEM_PROMPT]
+            for h in history:
+                role = "user" if h["role"] == "user" else "model"
+                contents.append(h["parts"][0]["text"])
+
+            response = gemini_client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=contents,
             )
-            bot_reply = completion.choices[0].message.content
-            used_ai_name = "Groq API (llama-3.3-70b-versatile)"
+            bot_reply = response.text
+            used_ai_name = "Google Gemini API (gemini-2.5-flash)"
         except Exception as e:
-            debug_logs.append(f"❌ Groq API Failed: {str(e)}")
+            debug_logs.append(f"❌ Gemini API Failed: {str(e)}")
 
     if not bot_reply:
         error_summary = "\n".join(debug_logs) if debug_logs else "No active APIs available."
-        send_telegram_debug_alert(error_summary, "⚠️ Groq API failed!")
+        send_telegram_debug_alert(error_summary, "⚠️ Gemini API failed!")
         bot_reply = "একটু টেকনিক্যাল আপডেট চলছে, এখনই সবকিছু ঠিক হয়ে যাবে! সাথেই থাকুন। 🛠️"
     else:
         print(f"Successfully responded using: {used_ai_name}")
 
-    history.append({"role": "assistant", "content": bot_reply})
+    history.append({"role": "model", "parts": [{"text": bot_reply}]})
     if len(history) > 20:
         user_histories[sender_id] = history[-20:]
         
@@ -211,3 +190,4 @@ def send_messenger_message(recipient_id, text):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    
