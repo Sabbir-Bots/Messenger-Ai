@@ -1,5 +1,6 @@
 import os
 import json
+from datetime import datetime, timezone, timedelta
 from flask import Flask, request
 import requests
 from google import genai
@@ -46,6 +47,13 @@ if GEMINI_API_KEY:
 
 # বর্তমানে চালু (GA / স্ট্যাবল) মডেল - gemini-2.5-flash এখন বন্ধ হয়ে গেছে
 GEMINI_MODEL = "gemini-3.6-flash"
+
+# "আজকের" হিসাব বাংলাদেশ সময় (UTC+6) অনুযায়ী রিসেট হবে
+BD_TZ = timezone(timedelta(hours=6))
+
+
+def get_today_str():
+    return datetime.now(BD_TZ).strftime('%Y-%m-%d')
 
 SYSTEM_PROMPT = (
     "তোমার নাম ADITY। তোমার ভার্সন ২.০। তোমাকে তৈরি করেছেন তোমার ডেভেলপার ও মালিক সাব্বির। "
@@ -100,17 +108,33 @@ def save_analytics(sender_id, message):
         chars = len(message)
         words = len(message.split())
         sentences = message.count('.') + message.count('?') + message.count('!') + 1
+        today_str = get_today_str()
 
         user_ref = db.collection('bot_analytics').document(str(sender_id))
         doc = user_ref.get()
 
         if doc.exists:
             data = doc.to_dict()
+
+            # আজকের হিসাব: আগের last_active_date আজকের সাথে না মিললে ০ থেকে রিসেট হবে
+            if data.get('last_active_date') == today_str:
+                today_messages = data.get('today_total_messages', 0) + 1
+                today_characters = data.get('today_total_characters', 0) + chars
+                today_sentences = data.get('today_total_sentences', 0) + sentences
+            else:
+                today_messages = 1
+                today_characters = chars
+                today_sentences = sentences
+
             user_ref.update({
                 'total_messages': data.get('total_messages', 0) + 1,
                 'total_characters': data.get('total_characters', 0) + chars,
                 'total_words': data.get('total_words', 0) + words,
                 'total_sentences': data.get('total_sentences', 0) + sentences,
+                'today_total_messages': today_messages,
+                'today_total_characters': today_characters,
+                'today_total_sentences': today_sentences,
+                'last_active_date': today_str,
                 'last_active': firestore.SERVER_TIMESTAMP
             })
         else:
@@ -120,6 +144,10 @@ def save_analytics(sender_id, message):
                 'total_characters': chars,
                 'total_words': words,
                 'total_sentences': sentences,
+                'today_total_messages': 1,
+                'today_total_characters': chars,
+                'today_total_sentences': sentences,
+                'last_active_date': today_str,
                 'first_active': firestore.SERVER_TIMESTAMP,
                 'last_active': firestore.SERVER_TIMESTAMP
             })
