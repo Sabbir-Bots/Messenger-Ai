@@ -9,7 +9,7 @@ from firebase_admin import credentials, firestore
 
 app = Flask(__name__)
 
-# --- ১. এনভায়রনমেন্ট ভ্যারিয়েবল থেকে টোকেন ও কনফিগারেশন লোড ---
+# --- ১. এনভায়রনমেন্ট ভ্যারিয়েবল থেকে টোকেন ও কনফিগারেশন লোড ---
 PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN")
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "my_custom_verify_token_123")
 
@@ -17,7 +17,7 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_ADMIN_CHAT_ID = os.environ.get("TELEGRAM_ADMIN_CHAT_ID")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# --- ২. ফায়ারবেস (Firebase Firestore) কানেকশন ---
+# --- ২. ফায়ারবেস (Firebase Firestore) কানেকশন ---
 db = None
 try:
     firebase_cred_json = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
@@ -31,7 +31,7 @@ try:
             cred = credentials.Certificate(firebase_cred_json)
             if not firebase_admin._apps:
                 firebase_admin.initialize_app(cred)
-        
+
         db = firestore.client()
         print("Firebase connected successfully!")
     else:
@@ -44,13 +44,16 @@ client = None
 if GEMINI_API_KEY:
     client = genai.Client(api_key=GEMINI_API_KEY)
 
+# বর্তমানে চালু (GA / স্ট্যাবল) মডেল - gemini-2.5-flash এখন বন্ধ হয়ে গেছে
+GEMINI_MODEL = "gemini-3.6-flash"
+
 SYSTEM_PROMPT = (
     "তোমার নাম ADITY। তোমার ভার্সন ২.০। তোমাকে তৈরি করেছেন তোমার ডেভেলপার ও মালিক সাব্বির। "
-    "তুমি একজন অত্যন্ত স্মার্ট, রসিক এবং মানিয়ে চলতে পারা সঙ্গী। গণিত, বীজগণিত, যুক্তি এবং যেকোনো জটিল সমস্যার সমাধান স্টেপ-বাই-স্টেপ নিখুঁতভাবে বুঝিয়ে দেবে। "
-    "ব্যবহারকারীর দক্ষতা নিয়ে কোনো অতিরিক্ত মূল্যায়ন, মন্তব্য বা অপ্রাসঙ্গিক কথা বলবে না। "
-    "গুরুত্বপূর্ণ নিয়ম: ব্যবহারকারী যদি নিজে থেকে সরাসরি 'সালাম' বা 'আসসালামু আলাইকুম' লেখে, কেবল তবেই সুন্দরভাবে 'ওয়ালাইকুম আসসালাম' বা সালামের উত্তর দেবে। "
-    "অন্যথায় ব্যবহারকারী সালাম না দিলে হুট করে নিজে থেকে কখনোই 'ওয়ালাইকুম আসসালাম' বলবে না, সরাসরি কথার উত্তর দেবে। "
-    "কেউ সাব্বিরের পরিচয় বা যোগাযোগের মাধ্যম চাইলে নিচের লিংকগুলো দিবে:\n"
+    "তুমি একজন অত্যন্ত স্মার্ট, রসিক এবং মানিয়ে চলতে পারা সঙ্গী। গণিত, বীজগণিত, যুক্তি এবং যেকোনো জটিল সমস্যার সমাধান স্টেপ-বাই-স্টেপ নিখুঁতভাবে বুঝিয়ে দেবে। "
+    "ব্যবহারকারীর দক্ষতা নিয়ে কোনো অতিরিক্ত মূল্যায়ন, মন্তব্য বা অপ্রাসঙ্গিক কথা বলবে না। "
+    "গুরুত্বপূর্ণ নিয়ম: ব্যবহারকারী যদি নিজে থেকে সরাসরি 'সালাম' বা 'আসসালামু আলাইকুম' লেখে, কেবল তবেই সুন্দরভাবে 'ওয়ালাইকুম আসসালাম' বা সালামের উত্তর দেবে। "
+    "অন্যথায় ব্যবহারকারী সালাম না দিলে হুট করে নিজে থেকে কখনোই 'ওয়ালাইকুম আসসালাম' বলবে না, সরাসরি কথার উত্তর দেবে। "
+    "কেউ সাব্বিরের পরিচয় বা যোগাযোগের মাধ্যম চাইলে নিচের লিংকগুলো দিবে:\n"
     "- ফেসবুক আইডি: https://www.facebook.com/SPNSabbir.0\n"
     "- টেলিগ্রাম: @SPNSabbir\n"
     "কোনো কাল্পনিক দৈনিক লিমিটের কথা কখনো বলবে না।"
@@ -58,6 +61,7 @@ SYSTEM_PROMPT = (
 
 # ব্যবহারকারীদের চ্যাট হিস্ট্রি সংরক্ষণের জন্য মেমোরি ডিকশনারি
 user_chats = {}
+
 
 @app.route("/", methods=['GET'])
 def verify():
@@ -69,23 +73,25 @@ def verify():
         return challenge, 200
     return "Verification failed", 403
 
+
 @app.route("/", methods=['POST'])
 def webhook():
     data = request.get_json()
-    
+
     if data.get("object") == "page":
         for entry in data.get("entry", []):
             for messaging_event in entry.get("messaging", []):
                 sender_id = messaging_event.get("sender", {}).get("id")
-                
+
                 if messaging_event.get("message") and messaging_event["message"].get("text"):
                     user_message = messaging_event["message"]["text"]
-                    
+
                     save_analytics(sender_id, user_message)
                     bot_reply, used_ai = get_gemini_response(sender_id, user_message)
                     send_messenger_message(sender_id, bot_reply)
-                    
+
     return "EVENT_RECEIVED", 200
+
 
 def save_analytics(sender_id, message):
     if not db:
@@ -97,7 +103,7 @@ def save_analytics(sender_id, message):
 
         user_ref = db.collection('bot_analytics').document(str(sender_id))
         doc = user_ref.get()
-        
+
         if doc.exists:
             data = doc.to_dict()
             user_ref.update({
@@ -120,6 +126,7 @@ def save_analytics(sender_id, message):
     except Exception as e:
         print("Firebase Analytics Error:", e)
 
+
 def get_gemini_response(sender_id, prompt):
     bot_reply = None
     used_ai_name = None
@@ -128,40 +135,42 @@ def get_gemini_response(sender_id, prompt):
         return "Gemini API Client is not initialized properly.", "Error"
 
     try:
-        # নতুন SDK অনুযায়ী চ্যাট সেশন হ্যান্ডলিং
+        # নতুন SDK অনুযায়ী চ্যাট সেশন হ্যান্ডলিং
         if sender_id not in user_chats:
             user_chats[sender_id] = client.chats.create(
-                model="gemini-2.5-flash",
+                model=GEMINI_MODEL,
                 config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
-                    temperature=0.7
+                    system_instruction=SYSTEM_PROMPT
+                    # NOTE: Gemini 3.x সিরিজে temperature/top_p/top_k deprecated,
+                    # তাই এখানে সেগুলো আর পাঠানো হচ্ছে না।
                 )
             )
-        
+
         chat = user_chats[sender_id]
         response = chat.send_message(prompt)
-        
+
         if response and response.text:
             bot_reply = response.text
-            used_ai_name = "Google GenAI (gemini-2.5-flash)"
+            used_ai_name = f"Google GenAI ({GEMINI_MODEL})"
         else:
             if sender_id in user_chats:
                 del user_chats[sender_id]
-            bot_reply = "দুঃখিত, এই বিষয়টি ফিল্টারড হয়েছে। অন্য কিছু জিজ্ঞেস করতে পারেন।"
+            bot_reply = "দুঃখিত, এই বিষয়টি ফিল্টারড হয়েছে। অন্য কিছু জিজ্ঞেস করতে পারেন।"
             used_ai_name = "Safety Blocked"
-            
+
     except Exception as e:
         error_msg = str(e)
         print(f"❌ Gemini API Detailed Error: {error_msg}")
-        
-        # যদি চ্যাট সেশনে কোনো করাপ্টেড হিস্ট্রি থাকে তা ডিলিট করে দেওয়া
+
+        # যদি চ্যাট সেশনে কোনো করাপ্টেড হিস্ট্রি থাকে তা ডিলিট করে দেওয়া
         if sender_id in user_chats:
             del user_chats[sender_id]
-            
-        bot_reply = f"টেকনিক্যাল ত্রুটি দেখা দিয়েছে। বিস্তারিত: {error_msg[:100]}"
+
+        bot_reply = f"টেকনিক্যাল ত্রুটি দেখা দিয়েছে। বিস্তারিত: {error_msg[:100]}"
         used_ai_name = "Error Handled"
 
     return bot_reply, used_ai_name
+
 
 def send_messenger_message(recipient_id, text):
     if not PAGE_ACCESS_TOKEN:
@@ -175,6 +184,6 @@ def send_messenger_message(recipient_id, text):
     }
     requests.post(url, json=payload, headers=headers)
 
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-        
