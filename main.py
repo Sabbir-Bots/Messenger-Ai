@@ -8,6 +8,7 @@ from firebase_service import save_analytics
 from gemini_service import get_gemini_response
 from messenger_service import send_messenger_message, send_typing_indicator
 from telegram_debug import notify_admin
+import tg_service
 
 app = Flask(__name__)
 
@@ -28,6 +29,17 @@ def verify():
 def health():
     """বট জীবিত আছে কিনা চেক করার জন্য সাধারণ health-check রুট"""
     return {"status": "ok"}, 200
+
+
+@app.route("/telegram-webhook", methods=['POST'])
+def telegram_webhook():
+    """Telegram Bot এর জন্য webhook - অ্যাডমিন কমান্ড হ্যান্ডেল করে (যেমন /active_key)"""
+    try:
+        update = request.get_json()
+        tg_service.handle_update(update)
+    except Exception as e:
+        logger.error(f"Telegram webhook এ এরর: {e}")
+    return "OK", 200
 
 
 @app.route("/", methods=['POST'])
