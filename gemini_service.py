@@ -1,5 +1,6 @@
 from google import genai
 from google.genai import types
+import hashlib
 
 from config import GEMINI_API_KEYS, GEMINI_MODEL, MAX_HISTORY_TURNS
 from prompt import SYSTEM_PROMPT
@@ -19,11 +20,21 @@ if gemini_clients:
 else:
     logger.warning("⚠️ কোনো Gemini API key পাওয়া যায়নি! GEMINI_API_KEYS সেট করো।")
 
-# কোন key এখন ডিফল্ট হিসেবে ব্যবহার হচ্ছে
-current_key_index = 0
-
 # ইউজারের চ্যাট হিস্ট্রি (RAM এ), ফরম্যাট: { sender_id: [ {"role": "user"/"model", "text": "..."} ] }
 user_chats = {}
+
+
+def get_assigned_key_index(sender_id):
+    """
+    প্রতিটা ইউজারকে তার sender_id অনুযায়ী একটা নির্দিষ্ট key বরাদ্দ করা হয় (sticky assignment)।
+    এতে একই ইউজার সবসময় একই key ব্যবহার করে (ধারাবাহিকতা বজায় থাকে),
+    কিন্তু আলাদা আলাদা ইউজার আলাদা আলাদা key-তে ছড়িয়ে যায় (load balancing)।
+    """
+    total_keys = len(gemini_clients)
+    if total_keys == 0:
+        return 0
+    hash_value = int(hashlib.sha256(str(sender_id).encode("utf-8")).hexdigest(), 16)
+    return hash_value % total_keys
 
 
 def is_quota_error(error_msg):
@@ -31,6 +42,20 @@ def is_quota_error(error_msg):
     error_msg_lower = error_msg.lower()
     quota_signals = ["429", "resource_exhausted", "quota", "rate limit", "rate_limit"]
     return any(signal in error_msg_lower for signal in quota_signals)
+
+
+def is_recoverable_key_error(error_msg):
+    """
+    এরর মেসেজ দেখে বোঝা যে এটা key/project-লেভেল সমস্যা কিনা,
+    যেখানে অন্য key দিয়ে ট্রাই করলে কাজ হতে পারে।
+    quota-exceeded (429) এবং permission-denied (403) দুটোই এর মধ্যে পড়ে।
+    """
+    error_msg_lower = error_msg.lower()
+    signals = [
+        "429", "resource_exhausted", "quota", "rate limit", "rate_limit",
+        "403", "permission_denied", "denied access"
+    ]
+    return any(signal in error_msg_lower for signal in signals)
 
 
 def build_contents(history, new_prompt):
@@ -45,8 +70,6 @@ def build_contents(history, new_prompt):
 
 
 def get_gemini_response(sender_id, prompt):
-    global current_key_index
-
     if not gemini_clients:
         return "Gemini API Client is not initialized properly.", "Error"
 
@@ -57,9 +80,11 @@ def get_gemini_response(sender_id, prompt):
     total_keys = len(gemini_clients)
     last_error = None
 
-    # বর্তমান key দিয়ে শুরু করে, দরকার হলে একে একে বাকি key গুলো ট্রাই করবে
+    # এই ইউজারের জন্য বরাদ্দকৃত key দিয়ে শুরু, দরকার হলে পরের key গুলোতে fallback করবে
+    assigned_index = get_assigned_key_index(sender_id)
+
     for attempt in range(total_keys):
-        key_index = (current_key_index + attempt) % total_keys
+        key_index = (assigned_index + attempt) % total_keys
         client = gemini_clients[key_index]
 
         try:
@@ -70,7 +95,7 @@ def get_gemini_response(sender_id, prompt):
             )
 
             if response and response.text:
-                current_key_index = key_index  # কাজ করা key-ই এখন থেকে ডিফল্ট
+                logger.info(f"✅ রেসপন্স তৈরি হয়েছে key #{key_index + 1} দিয়ে (sender: {sender_id})")
 
                 history.append({"role": "user", "text": prompt})
                 history.append({"role": "model", "text": response.text})
@@ -88,8 +113,8 @@ def get_gemini_response(sender_id, prompt):
             last_error = error_msg
             logger.error(f"❌ Gemini key #{key_index + 1} এ এরর: {error_msg}")
 
-            if is_quota_error(error_msg):
-                continue  # এই key এর কোটা শেষ, পরের key দিয়ে ট্রাই
+            if is_recoverable_key_error(error_msg):
+                continue  # এই key তে সমস্যা (quota/permission), পরের key দিয়ে fallback ট্রাই
             else:
                 if sender_id in user_chats:
                     del user_chats[sender_id]
@@ -98,9 +123,9 @@ def get_gemini_response(sender_id, prompt):
                     "Error Handled"
                 )
 
-    # সব key ই কোটা শেষ হয়ে গেলে
-    notify_admin(f"⚠️ সবগুলো ({total_keys}টা) Gemini API key exhausted হয়ে গেছে!\nশেষ এরর: {str(last_error)[:200]}")
+    # সবগুলো key-তেই সমস্যা হলে
+    notify_admin(f"⚠️ এই ইউজারের জন্য চেষ্টা করা সবগুলো ({total_keys}টা) Gemini API key ব্যর্থ হয়েছে!\nশেষ এরর: {str(last_error)[:200]}")
     return (
         "এই মুহূর্তে অনেক বেশি চাপ যাচ্ছে, একটু পরে আবার চেষ্টা করো।",
-        f"All Keys Exhausted (last error: {str(last_error)[:80]})"
+        f"All Keys Failed (last error: {str(last_error)[:80]})"
     )

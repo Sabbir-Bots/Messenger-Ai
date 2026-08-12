@@ -39,8 +39,13 @@ def handle_update(update):
         if total_keys == 0:
             send_telegram_message(chat_id, "⚠️ কোনো Gemini API key লোডই হয়নি।")
             return
-        active_index = gemini_service.current_key_index + 1
-        reply = f"🔑 বর্তমানে সক্রিয় key: #{active_index}\n📦 মোট লোড হওয়া key: {total_keys}টা"
+        reply = (
+            f"📦 মোট লোড হওয়া key: {total_keys}টা\n\n"
+            "এখন প্রতিটা ইউজারকে তার আইডি অনুযায়ী একটা নির্দিষ্ট key বরাদ্দ করা হয় "
+            "(লোড ব্যালান্স করার জন্য), তাই কোনো একটা 'গ্লোবাল অ্যাক্টিভ key' নেই। "
+            "কোনো নির্দিষ্ট ইউজার কোন key ব্যবহার করছে তা Render লগে "
+            "'✅ রেসপন্স তৈরি হয়েছে key #X' লাইন দেখে বোঝা যাবে।"
+        )
         send_telegram_message(chat_id, reply)
 
     elif text == "/start":
